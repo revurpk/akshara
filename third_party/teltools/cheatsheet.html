@@ -1,0 +1,389 @@
+<title>teltools Telugu</title>
+<style>
+  :root {
+    --bg: #ece8df;
+    --panel: #faf8f3;
+    --inset: #f0ece3;
+    --ink: #201d17;
+    --muted: #6d685d;
+    --faint: #8f897c;
+    --line: #d8d2c4;
+    --accent: #0f766e;
+    --accent-deep: #0b5750;
+    --key-bg: #ffffff;
+    --key-line: #ccc5b6;
+    --key-ink: #38342b;
+    --shadow: 0 1px 2px rgba(40,34,20,.06), 0 6px 18px rgba(40,34,20,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14120d;
+      --panel: #1e1b14;
+      --inset: #252118;
+      --ink: #ece7db;
+      --muted: #a49c8b;
+      --faint: #837c6d;
+      --line: #322d21;
+      --accent: #5ccfc2;
+      --accent-deep: #86dcd1;
+      --key-bg: #2a251b;
+      --key-line: #3d3727;
+      --key-ink: #e8e1d3;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 22px rgba(0,0,0,.28);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14120d;
+    --panel: #1e1b14;
+    --inset: #252118;
+    --ink: #ece7db;
+    --muted: #a49c8b;
+    --faint: #837c6d;
+    --line: #322d21;
+    --accent: #5ccfc2;
+    --accent-deep: #86dcd1;
+    --key-bg: #2a251b;
+    --key-line: #3d3727;
+    --key-ink: #e8e1d3;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 22px rgba(0,0,0,.28);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: clamp(20px, 4vw, 48px) clamp(16px, 4vw, 40px) 56px; }
+
+  /* Telugu + mono roles */
+  .tel { font-family: "Nirmala UI", "Gautami", "Noto Serif Telugu", "Noto Sans Telugu", "Pothana2000", system-ui, serif; }
+  .mono { font-family: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", "Consolas", monospace; }
+
+  /* ---- masthead ---- */
+  .masthead {
+    display: flex; flex-wrap: wrap; gap: 28px 40px;
+    align-items: flex-end; justify-content: space-between;
+    padding-bottom: 22px; margin-bottom: 30px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .brand h1 {
+    margin: 0; font-size: clamp(30px, 5vw, 46px); font-weight: 800;
+    letter-spacing: -.02em; line-height: 1; text-wrap: balance;
+  }
+  .brand h1 .script { color: var(--accent); font-weight: 800; }
+  .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--accent-deep); margin: 0 0 12px;
+  }
+  .tagline { margin: 12px 0 0; color: var(--muted); max-width: 46ch; font-size: 15px; }
+
+  /* how syllables build */
+  .build { display: flex; flex-wrap: wrap; gap: 10px; }
+  .step {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px 8px; min-width: 72px; box-shadow: var(--shadow);
+  }
+  .step .out { font-size: 26px; color: var(--accent); line-height: 1; }
+  .step .cap { font-size: 10.5px; color: var(--faint); letter-spacing: .02em; text-align: center; }
+  .step .cap b { color: var(--muted); font-weight: 700; }
+
+  /* ---- plates grid ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(255px, 1fr)); gap: 18px; align-items: start; }
+  .plate {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px 16px 18px; box-shadow: var(--shadow); break-inside: avoid;
+  }
+  .plate.wide { grid-column: 1 / -1; }
+  .plate > h2 {
+    margin: 2px 0 14px; font-size: 12px; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent-deep);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .plate > h2 .sub { font-size: 11px; letter-spacing: .04em; text-transform: none; color: var(--faint); font-weight: 600; }
+
+  /* keycap */
+  .key {
+    font-family: "Cascadia Code", ui-monospace, "Consolas", monospace;
+    font-size: 12.5px; font-weight: 600; color: var(--key-ink);
+    background: var(--key-bg); border: 1px solid var(--key-line);
+    border-bottom-width: 2px; border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+  }
+  .alt { color: var(--faint); font-size: 11px; margin-left: 5px; }
+
+  /* generic entry rows */
+  .rows { display: grid; gap: 8px; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .row .keys { flex: 0 0 auto; min-width: 74px; }
+  .row .out { font-size: 22px; color: var(--accent); line-height: 1; }
+  .row .name { color: var(--muted); font-size: 12.5px; margin-left: auto; text-align: right; }
+
+  /* consonant varga blocks */
+  .vargas { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px 22px; }
+  .varga .vh {
+    display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px;
+    padding-bottom: 5px; border-bottom: 1px solid var(--line);
+  }
+  .varga .vh .en { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .varga .vh .te { font-size: 15px; color: var(--accent); margin-left: auto; }
+  .cons { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 9px 8px; }
+  .cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .cell .out { font-size: 25px; color: var(--accent); line-height: 1; }
+  .cell .k2 { font-size: 11.5px; }
+
+  /* vowel cards */
+  .vowels-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; }
+  .vcard { background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 9px 8px 8px; text-align: center; }
+  .vcard .keys { display: block; margin-bottom: 6px; }
+  .vcard .pair { display: flex; align-items: baseline; justify-content: center; gap: 10px; }
+  .vcard .indep { font-size: 27px; color: var(--accent); line-height: 1; }
+  .vcard .matra { font-size: 20px; color: var(--ink); line-height: 1; opacity: .85; }
+  .vcard .lbl { display: block; margin-top: 6px; font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+  .more { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; flex-wrap: wrap; gap: 7px 12px; align-items: center; }
+  .more .mi { display: inline-flex; align-items: baseline; gap: 6px; font-size: 13px; color: var(--muted); }
+  .more .mi .g { font-size: 19px; color: var(--accent); }
+
+  /* examples */
+  .ex { display: grid; gap: 10px; }
+  .ex .line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .ex .roman { font-family: "Cascadia Code", ui-monospace, monospace; font-size: 13px; color: var(--key-ink);
+    background: var(--inset); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
+  .ex .arrow { color: var(--faint); }
+  .ex .res { font-size: 22px; color: var(--accent); line-height: 1.2; }
+
+  .callout {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 26px;
+    background: transparent; border: 1px dashed var(--line); border-radius: 12px;
+    padding: 13px 16px; color: var(--muted); font-size: 13px;
+  }
+  .callout b { color: var(--ink); font-weight: 700; }
+  .callout .k { font-size: 11.5px; }
+
+  footer { margin-top: 34px; padding-top: 16px; border-top: 1px solid var(--line);
+    color: var(--faint); font-size: 12px; display: flex; flex-wrap: wrap; gap: 6px 18px; justify-content: space-between; }
+
+  @media (max-width: 520px) {
+    .row .name { display: none; }
+    .masthead { gap: 20px; }
+  }
+
+  /* ---- print ---- */
+  @media print {
+    :root { --bg:#fff; --panel:#fff; --inset:#fafafa; --ink:#1a1a1a; --muted:#444; --faint:#666; --line:#ccc; --accent:#0b5750; --accent-deep:#0b5750; --key-bg:#fff; --key-line:#bbb; --key-ink:#222; --shadow:none; }
+    body { background:#fff; }
+    .wrap { padding: 0; max-width: none; }
+    .plate, .step, .vcard { box-shadow: none; }
+    .plate, .varga, .vcard, .step, .ex .line { break-inside: avoid; }
+    .masthead { break-after: avoid; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div class="brand">
+      <p class="eyebrow">teltools · Keyman keyboard</p>
+      <h1><span class="script tel">తెలుగు</span> ITRANS</h1>
+      <p class="tagline">Type romanized (ITRANS / RTS) input and get Telugu, live. A quick reference for the <span class="mono">teltools&nbsp;Telugu</span> keyboard — the same scheme as <span class="mono">trans()</span>.</p>
+    </div>
+    <div class="build" aria-label="How syllables build">
+      <div class="step"><span class="out tel">క్</span><span class="cap"><b>k</b><br>bare + virama</span></div>
+      <div class="step"><span class="out tel">క</span><span class="cap"><b>ka</b><br>inherent a</span></div>
+      <div class="step"><span class="out tel">కి</span><span class="cap"><b>ki</b><br>vowel matra</span></div>
+      <div class="step"><span class="out tel">క్య</span><span class="cap"><b>kya</b><br>cluster</span></div>
+      <div class="step"><span class="out tel">కృ</span><span class="cap"><b>kR^i</b><br>vocalic ṛ</span></div>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- VOWELS -->
+    <section class="plate wide">
+      <h2>Vowels <span class="sub">independent form · matra shown on క</span></h2>
+      <div class="vowels-grid">
+        <div class="vcard"><span class="keys"><span class="key">a</span></span><span class="pair"><span class="indep tel">అ</span><span class="matra tel">క</span></span><span class="lbl">a · ka</span></div>
+        <div class="vcard"><span class="keys"><span class="key">aa</span><span class="key">A</span></span><span class="pair"><span class="indep tel">ఆ</span><span class="matra tel">కా</span></span><span class="lbl">ā</span></div>
+        <div class="vcard"><span class="keys"><span class="key">i</span></span><span class="pair"><span class="indep tel">ఇ</span><span class="matra tel">కి</span></span><span class="lbl">i</span></div>
+        <div class="vcard"><span class="keys"><span class="key">ii</span><span class="key">I</span></span><span class="pair"><span class="indep tel">ఈ</span><span class="matra tel">కీ</span></span><span class="lbl">ī</span></div>
+        <div class="vcard"><span class="keys"><span class="key">u</span></span><span class="pair"><span class="indep tel">ఉ</span><span class="matra tel">కు</span></span><span class="lbl">u</span></div>
+        <div class="vcard"><span class="keys"><span class="key">uu</span><span class="key">U</span></span><span class="pair"><span class="indep tel">ఊ</span><span class="matra tel">కూ</span></span><span class="lbl">ū</span></div>
+        <div class="vcard"><span class="keys"><span class="key">R^i</span></span><span class="pair"><span class="indep tel">ఋ</span><span class="matra tel">కృ</span></span><span class="lbl">ṛ</span></div>
+        <div class="vcard"><span class="keys"><span class="key">e</span></span><span class="pair"><span class="indep tel">ఎ</span><span class="matra tel">కె</span></span><span class="lbl">e</span></div>
+        <div class="vcard"><span class="keys"><span class="key">E</span><span class="key">ee</span></span><span class="pair"><span class="indep tel">ఏ</span><span class="matra tel">కే</span></span><span class="lbl">ē</span></div>
+        <div class="vcard"><span class="keys"><span class="key">ai</span></span><span class="pair"><span class="indep tel">ఐ</span><span class="matra tel">కై</span></span><span class="lbl">ai</span></div>
+        <div class="vcard"><span class="keys"><span class="key">o</span></span><span class="pair"><span class="indep tel">ఒ</span><span class="matra tel">కొ</span></span><span class="lbl">o</span></div>
+        <div class="vcard"><span class="keys"><span class="key">O</span><span class="key">oo</span></span><span class="pair"><span class="indep tel">ఓ</span><span class="matra tel">కో</span></span><span class="lbl">ō</span></div>
+        <div class="vcard"><span class="keys"><span class="key">au</span></span><span class="pair"><span class="indep tel">ఔ</span><span class="matra tel">కౌ</span></span><span class="lbl">au</span></div>
+      </div>
+      <div class="more">
+        <span class="mi"><span class="key">R^I</span><span class="g tel">ౠ</span></span>
+        <span class="mi"><span class="key">L^i</span><span class="g tel">ఌ</span></span>
+        <span class="mi"><span class="key">L^I</span><span class="g tel">ౡ</span></span>
+        <span class="mi"><span class="key">.a</span><span class="g tel">ఽ</span> avagraha</span>
+        <span class="mi"><span class="key">^a</span><span class="g tel">ఄ</span></span>
+        <span class="mi"><span class="key">^e</span><span class="g tel">఍</span></span>
+        <span class="mi"><span class="key">^o</span><span class="g tel">఑</span></span>
+      </div>
+    </section>
+
+    <!-- CONSONANTS -->
+    <section class="plate wide">
+      <h2>Consonants <span class="sub">glyph shown with inherent a</span></h2>
+      <div class="vargas">
+        <div class="varga">
+          <div class="vh"><span class="en">Velar</span><span class="te tel">కవర్గము</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">క</span><span class="key k2">k</span></div>
+            <div class="cell"><span class="out tel">ఖ</span><span class="key k2">kh</span></div>
+            <div class="cell"><span class="out tel">గ</span><span class="key k2">g</span></div>
+            <div class="cell"><span class="out tel">ఘ</span><span class="key k2">gh</span></div>
+            <div class="cell"><span class="out tel">ఙ</span><span class="key k2">~N</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Palatal</span><span class="te tel">చవర్గము</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">చ</span><span class="key k2">ch</span></div>
+            <div class="cell"><span class="out tel">ఛ</span><span class="key k2">chh</span></div>
+            <div class="cell"><span class="out tel">జ</span><span class="key k2">j</span></div>
+            <div class="cell"><span class="out tel">ఝ</span><span class="key k2">jh</span></div>
+            <div class="cell"><span class="out tel">ఞ</span><span class="key k2">~n</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Retroflex</span><span class="te tel">టవర్గము</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">ట</span><span class="key k2">T</span></div>
+            <div class="cell"><span class="out tel">ఠ</span><span class="key k2">Th</span></div>
+            <div class="cell"><span class="out tel">డ</span><span class="key k2">D</span></div>
+            <div class="cell"><span class="out tel">ఢ</span><span class="key k2">Dh</span></div>
+            <div class="cell"><span class="out tel">ణ</span><span class="key k2">N</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Dental</span><span class="te tel">తవర్గము</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">త</span><span class="key k2">t</span></div>
+            <div class="cell"><span class="out tel">థ</span><span class="key k2">th</span></div>
+            <div class="cell"><span class="out tel">ద</span><span class="key k2">d</span></div>
+            <div class="cell"><span class="out tel">ధ</span><span class="key k2">dh</span></div>
+            <div class="cell"><span class="out tel">న</span><span class="key k2">n</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Labial</span><span class="te tel">పవర్గము</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">ప</span><span class="key k2">p</span></div>
+            <div class="cell"><span class="out tel">ఫ</span><span class="key k2">ph</span></div>
+            <div class="cell"><span class="out tel">బ</span><span class="key k2">b</span></div>
+            <div class="cell"><span class="out tel">భ</span><span class="key k2">bh</span></div>
+            <div class="cell"><span class="out tel">మ</span><span class="key k2">m</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Semivowels</span><span class="te tel">అంతస్థలు</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">య</span><span class="key k2">y</span></div>
+            <div class="cell"><span class="out tel">ర</span><span class="key k2">r</span></div>
+            <div class="cell"><span class="out tel">ల</span><span class="key k2">l</span></div>
+            <div class="cell"><span class="out tel">వ</span><span class="key k2">v</span></div>
+            <div class="cell"><span class="out tel">ళ</span><span class="key k2">L</span></div>
+            <div class="cell"><span class="out tel">ఱ</span><span class="key k2">R</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Sibilants · h</span><span class="te tel">ఊష్మలు</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">శ</span><span class="key k2">sh</span></div>
+            <div class="cell"><span class="out tel">ష</span><span class="key k2">Sh</span></div>
+            <div class="cell"><span class="out tel">స</span><span class="key k2">s</span></div>
+            <div class="cell"><span class="out tel">హ</span><span class="key k2">h</span></div>
+          </div>
+        </div>
+        <div class="varga">
+          <div class="vh"><span class="en">Conjunct · extra</span><span class="te tel">సంయుక్త</span></div>
+          <div class="cons">
+            <div class="cell"><span class="out tel">క్ష</span><span class="key k2">kSh</span></div>
+            <div class="cell"><span class="out tel">ఴ</span><span class="key k2">.L</span></div>
+            <div class="cell"><span class="out tel">ౘ</span><span class="key k2">cs</span></div>
+            <div class="cell"><span class="out tel">ౙ</span><span class="key k2">dz</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MARKS -->
+    <section class="plate">
+      <h2>Marks &amp; sunna</h2>
+      <div class="rows">
+        <div class="row"><span class="keys"><span class="key">M</span><span class="key">.n</span></span><span class="out tel">కం</span><span class="name">anusvara</span></div>
+        <div class="row"><span class="keys"><span class="key">H</span></span><span class="out tel">కః</span><span class="name">visarga</span></div>
+        <div class="row"><span class="keys"><span class="key">.N</span></span><span class="out tel">కఁ</span><span class="name">candrabindu</span></div>
+        <div class="row"><span class="keys"><span class="key">.h</span></span><span class="out tel">క్</span><span class="name">virama · pollu</span></div>
+        <div class="row"><span class="keys"><span class="key">.a</span></span><span class="out tel">ఽ</span><span class="name">avagraha</span></div>
+        <div class="row"><span class="keys"><span class="key">\om</span></span><span class="out tel">ॐ</span><span class="name">om</span></div>
+      </div>
+    </section>
+
+    <!-- DIGITS & PUNCT -->
+    <section class="plate">
+      <h2>Digits &amp; punctuation</h2>
+      <div class="rows">
+        <div class="row"><span class="keys"><span class="key">0</span> … <span class="key">9</span></span><span class="out tel">౦౧౨౩౪౫౬౭౮౯</span></div>
+        <div class="row"><span class="keys"><span class="key">|</span></span><span class="out tel">।</span><span class="name">danda</span></div>
+        <div class="row"><span class="keys"><span class="key">||</span></span><span class="out tel">॥</span><span class="name">double danda</span></div>
+      </div>
+      <div class="more" style="margin-top:12px">
+        <span class="mi"><span class="key">.H</span><span class="g tel">౸</span></span>
+        <span class="mi"><span class="key">.t</span><span class="g tel">౿</span></span>
+        <span class="mi" style="color:var(--faint)">fractions <span class="key">1/4o</span><span class="g tel">౹</span> … <span class="key">3/4e</span><span class="g tel">౾</span></span>
+      </div>
+    </section>
+
+    <!-- VEDIC -->
+    <section class="plate">
+      <h2>Vedic accents &amp; signs <span class="sub">◌ = the mark's base</span></h2>
+      <div class="rows">
+        <div class="row"><span class="keys"><span class="key">'</span></span><span class="out tel">◌॑</span><span class="name">udatta · U+0951</span></div>
+        <div class="row"><span class="keys"><span class="key">\_</span></span><span class="out tel">◌॒</span><span class="name">anudatta · U+0952</span></div>
+        <div class="row"><span class="keys"><span class="key">.r</span></span><span class="out tel">◌౓</span><span class="name">grave · U+0C53</span></div>
+        <div class="row"><span class="keys"><span class="key">.e</span></span><span class="out tel">◌౔</span><span class="name">acute · U+0C54</span></div>
+        <div class="row"><span class="keys"><span class="key">^n</span></span><span class="out tel">◌఼</span><span class="name">nukta · U+0C3C</span></div>
+        <div class="row"><span class="keys"><span class="key">^.</span></span><span class="out tel">◌̇</span><span class="name">dot above · U+0307</span></div>
+        <div class="row"><span class="keys"><span class="key">_.</span></span><span class="out tel">◌̣</span><span class="name">dot below · U+0323</span></div>
+      </div>
+      <div class="more" style="margin-top:12px; color:var(--faint)">
+        <span class="mi">+ 24 Vedic tone signs <span class="key">\kar</span> … <span class="key">\avs</span> &nbsp;(U+1CD0–U+1CF2) — full list in README</span>
+      </div>
+    </section>
+
+    <!-- EXAMPLES -->
+    <section class="plate wide">
+      <h2>Try it</h2>
+      <div class="ex">
+        <div class="line"><span class="roman">satyamEva jayatE</span><span class="arrow">→</span><span class="res tel">సత్యమేవ జయతే</span></div>
+        <div class="line"><span class="roman">dharmaH</span><span class="arrow">→</span><span class="res tel">ధర్మః</span></div>
+        <div class="line"><span class="roman">kR^iShNa</span><span class="arrow">→</span><span class="res tel">కృష్ణ</span></div>
+        <div class="line"><span class="roman">lakShmI</span><span class="arrow">→</span><span class="res tel">లక్ష్మీ</span></div>
+        <div class="line"><span class="roman">aMdamaina telugu bhASha</span><span class="arrow">→</span><span class="res tel">అందమైన తెలుగు భాష</span></div>
+        <div class="line"><span class="roman">\om shrI</span><span class="arrow">→</span><span class="res tel">ॐ శ్రీ</span></div>
+      </div>
+    </section>
+
+    <!-- CALLOUT -->
+    <div class="callout">
+      <span><b>ॐ &nbsp;is&nbsp;</b> <span class="key">\om</span> — plain <span class="key">om</span>/<span class="key">OM</span>/<span class="key">AUM</span> stay as letters (so <span class="mono">komala</span> → కొమల, not కॐఅల).</span>
+      <span><b>Typing English?</b> Every Latin letter maps to Telugu — switch layouts for Latin text.</span>
+    </div>
+
+  </div>
+
+  <footer>
+    <span>Case-sensitive · <span class="mono">t</span> త vs <span class="mono">T</span> ట · <span class="mono">s</span> స vs <span class="mono">S</span> శ. Telugu rendering uses your system font.</span>
+    <span>teltools Telugu (ITRANS) · matches <span class="mono">trans()</span></span>
+  </footer>
+</div>

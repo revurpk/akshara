@@ -1,0 +1,5 @@
+#include "ephemeral/Flutter-Generated.xcconfig"
+
+// Akshara Rust core, linked statically (universal library built by
+// scripts/build-native.sh macos). -u keeps the C entry points for dlsym.
+OTHER_LDFLAGS = $(inherited) -force_load $(PROJECT_DIR)/../../target/universal-apple-darwin/release/libakshara.a -Wl,-u,_akshara_call -Wl,-u,_akshara_alloc -Wl,-u,_akshara_free

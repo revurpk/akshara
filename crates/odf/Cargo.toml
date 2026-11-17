@@ -1,0 +1,16 @@
+[package]
+name = "office-odf"
+description = "Hardened OpenDocument package (ZIP + XML) reading and writing."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+zip.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

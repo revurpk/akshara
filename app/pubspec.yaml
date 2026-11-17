@@ -1,0 +1,96 @@
+name: akshara
+description: "Akshara Office: a secure, cross-platform office suite (Writer, Calc, Math) with a Rust core."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.14.0
+
+# Deliberately minimal: no third-party plugins, so the app builds offline
+# from the local pub cache and has no native code besides the Rust core.
+dependencies:
+  flutter:
+    sdk: flutter
+  material_ui: ^1.5.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/logo.png
+    - assets/fonts/OFL.txt
+  # Google Noto fonts (SIL Open Font License 1.1), bundled so that Latin and
+  # Indic scripts render identically on every platform, fully offline.
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
+        - asset: assets/fonts/NotoSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSans-Italic.ttf
+          style: italic
+        - asset: assets/fonts/NotoSans-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: NotoSerif
+      fonts:
+        - asset: assets/fonts/NotoSerif-Regular.ttf
+        - asset: assets/fonts/NotoSerif-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/NotoSerif-Italic.ttf
+          style: italic
+        - asset: assets/fonts/NotoSerif-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: NotoSansMono
+      fonts:
+        - asset: assets/fonts/NotoSansMono-Regular.ttf
+        - asset: assets/fonts/NotoSansMono-Bold.ttf
+          weight: 700
+    - family: NotoSerifDevanagari
+      fonts:
+        - asset: assets/fonts/NotoSerifDevanagari-Regular.ttf
+        - asset: assets/fonts/NotoSerifDevanagari-Bold.ttf
+          weight: 700
+    - family: NotoSansMath
+      fonts:
+        - asset: assets/fonts/NotoSansMath-Regular.ttf
+    - family: NotoSansDevanagari
+      fonts:
+        - asset: assets/fonts/NotoSansDevanagari-Regular.ttf
+        - asset: assets/fonts/NotoSansDevanagari-Bold.ttf
+          weight: 700
+    - family: NotoSansBengali
+      fonts:
+        - asset: assets/fonts/NotoSansBengali-Regular.ttf
+        - asset: assets/fonts/NotoSansBengali-Bold.ttf
+          weight: 700
+    - family: NotoSansOriya
+      fonts:
+        - asset: assets/fonts/NotoSansOriya-Regular.ttf
+        - asset: assets/fonts/NotoSansOriya-Bold.ttf
+          weight: 700
+    - family: NotoSansTelugu
+      fonts:
+        - asset: assets/fonts/NotoSansTelugu-Regular.ttf
+        - asset: assets/fonts/NotoSansTelugu-Bold.ttf
+          weight: 700
+    - family: NotoSansTamil
+      fonts:
+        - asset: assets/fonts/NotoSansTamil-Regular.ttf
+        - asset: assets/fonts/NotoSansTamil-Bold.ttf
+          weight: 700
+    - family: NotoSansKannada
+      fonts:
+        - asset: assets/fonts/NotoSansKannada-Regular.ttf
+        - asset: assets/fonts/NotoSansKannada-Bold.ttf
+          weight: 700
+    - family: NotoSansMalayalam
+      fonts:
+        - asset: assets/fonts/NotoSansMalayalam-Regular.ttf
+        - asset: assets/fonts/NotoSansMalayalam-Bold.ttf
+          weight: 700

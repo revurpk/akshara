@@ -1,0 +1,18 @@
+[package]
+name = "office-writer"
+description = "Word processor core: rich text document model, editing with undo, ODT/HTML/text I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+office-odf.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

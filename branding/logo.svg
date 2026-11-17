@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Akshara Office logo: a palm-leaf manuscript (the traditional Indian
+       writing surface) carrying the letter अ ("a", the first akshara) on a
+       saffron tile. Text is rendered from Noto Serif Devanagari (OFL). -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F7A43A"/>
+      <stop offset="0.5" stop-color="#E06A12"/>
+      <stop offset="1" stop-color="#A8400A"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FCF1D6"/>
+      <stop offset="1" stop-color="#EBD39E"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#4A1A02" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="232" fill="url(#tile)"/>
+  <g filter="url(#shadow)">
+    <rect x="112" y="300" width="800" height="424" rx="96" fill="url(#leaf)"/>
+  </g>
+  <!-- leaf veins -->
+  <g stroke="#C9A866" stroke-width="5" stroke-opacity="0.55">
+    <path d="M150 382 H874"/><path d="M150 642 H874"/>
+  </g>
+  <!-- binding holes with thread -->
+  <circle cx="214" cy="512" r="22" fill="#7A2E0A"/>
+  <circle cx="810" cy="512" r="22" fill="#7A2E0A"/>
+  <path d="M214 512 C 170 600, 120 640, 96 700" fill="none" stroke="#7A2E0A" stroke-width="10" stroke-linecap="round"/>
+  <text x="512" y="648" text-anchor="middle" font-family="Noto Serif Devanagari" font-weight="700"
+        font-size="380" fill="#8A1C0B">अ</text>
+</svg>

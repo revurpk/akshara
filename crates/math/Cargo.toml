@@ -1,0 +1,18 @@
+[package]
+name = "office-math"
+description = "Formula editor core: StarMath parser, MathML conversion and ODF formula files."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+office-odf.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

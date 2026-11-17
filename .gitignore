@@ -1,0 +1,32 @@
+# Python tooling (per project conventions)
+.venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+target/
+
+# Flutter / Dart
+app/.dart_tool/
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/**/ephemeral/
+app/android/.gradle/
+app/android/local.properties
+app/android/app/src/main/jniLibs/
+app/ios/Pods/
+app/macos/Pods/
+
+# Machine-specific toolchain setup
+scripts/local-env.sh
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+*.proptest-regressions
+third_party/teltools/Cargo.lock

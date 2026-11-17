@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Akshara Office
+GenericName=Office Suite
+GenericName[hi]=ऑफ़िस सूट
+Name[hi]=अक्षर ऑफ़िस
+Name[sa]=अक्षर-कार्यालयः
+Name[te]=అక్షర ఆఫీస్
+Name[ta]=அக்ஷர ஆபீஸ்
+Name[kn]=ಅಕ್ಷರ ಆಫೀಸ್
+Name[ml]=അക്ഷര ഓഫീസ്
+Name[or]=ଅକ୍ଷର ଅଫିସ୍
+Name[bn]=অক্ষর অফিস
+Comment=Documents, spreadsheets and formulas in English and Indian languages. Private and offline.
+Comment[hi]=अंग्रेज़ी और भारतीय भाषाओं में दस्तावेज़, स्प्रेडशीट और सूत्र। निजी और ऑफ़लाइन।
+Exec=@BIN@ %F
+Icon=org.akshara.Office
+Terminal=false
+Categories=Office;WordProcessor;Spreadsheet;Math;
+MimeType=application/vnd.oasis.opendocument.text;application/vnd.oasis.opendocument.spreadsheet;application/vnd.oasis.opendocument.formula;text/csv;application/mathml+xml;
+Keywords=word;document;spreadsheet;formula;odt;ods;hindi;indic;
+StartupWMClass=akshara

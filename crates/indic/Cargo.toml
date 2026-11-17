@@ -1,0 +1,16 @@
+[package]
+name = "office-indic"
+description = "Indic transliteration for Akshara Office, built on teltools: Roman (RTS/ITRANS) typing, script-to-script conversion and IAST, for Devanagari, Telugu, Tamil, Kannada, Malayalam, Odia and Bengali."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+teltools = { path = "../../third_party/teltools" }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Simplified Akshara mark for 16-48 px: the letter अ on the saffron tile. -->
+  <rect width="64" height="64" rx="14" fill="#E06A12"/>
+  <text x="32" y="50" text-anchor="middle" font-family="Noto Serif Devanagari" font-weight="700"
+        font-size="46" fill="#FFF6E0">अ</text>
+</svg>

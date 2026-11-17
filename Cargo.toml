@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/ffi", "crates/indic", "tools/icongen"]
+# Vendored third-party code keeps its own manifest and lints.
+exclude = ["third_party/teltools"]
+default-members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/ffi", "crates/indic"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+office-odf = { path = "crates/odf" }
+office-writer = { path = "crates/writer" }
+office-calc = { path = "crates/calc" }
+office-math = { path = "crates/math" }
+office-indic = { path = "crates/indic" }
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+proptest = "1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "unwind"
+overflow-checks = true
+strip = "debuginfo"

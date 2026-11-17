@@ -1,0 +1,8 @@
+#include "Generated.xcconfig"
+
+// Akshara Rust core, linked statically (build it first with
+// scripts/build-native.sh ios). -force_load keeps every object; -u keeps the
+// three C entry points that Dart looks up at run time with dlsym.
+AKSHARA_TARGET[sdk=iphoneos*] = aarch64-apple-ios
+AKSHARA_TARGET[sdk=iphonesimulator*] = aarch64-apple-ios-sim
+OTHER_LDFLAGS = $(inherited) -force_load $(PROJECT_DIR)/../../target/$(AKSHARA_TARGET)/release/libakshara.a -Wl,-u,_akshara_call -Wl,-u,_akshara_alloc -Wl,-u,_akshara_free

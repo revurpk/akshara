@@ -1,0 +1,31 @@
+Akshara Office
+Copyright 2026 Akshara contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Akshara Office is an independent, clean-room implementation of the
+OpenDocument (ODF 1.2) formats used by Apache OpenOffice. It contains no
+Apache OpenOffice source code and is not affiliated with or endorsed by the
+Apache Software Foundation. "Apache" and "OpenOffice" are trademarks of the
+Apache Software Foundation.
+
+Bundled fonts
+-------------
+The Noto fonts in app/assets/fonts (Noto Sans, Noto Serif, Noto Sans Mono,
+Noto Sans/Serif Devanagari, Noto Sans Bengali, Oriya, Telugu, Tamil, Kannada,
+Malayalam and Noto Sans Math) are Copyright The Noto Project Authors and
+licensed under the SIL Open Font License, Version 1.1
+(app/assets/fonts/OFL.txt). Source: https://github.com/notofonts
+
+teltools
+--------
+Indic transliteration is built on teltools, Copyright 2026 Pradyumna Revur,
+licensed under the Apache License, Version 2.0
+(https://github.com/revurpk/teltools). It is vendored in
+third_party/teltools with its LICENSE and NOTICE; the Akshara contributors'
+modifications are listed in third_party/teltools/PATCHES.md.
+
+Third-party Rust crates
+-----------------------
+Rust dependencies (zip, flate2, zlib-rs, serde, serde_json and their
+dependencies) are used under their MIT and/or Apache-2.0 licenses.
