@@ -14,6 +14,23 @@
 - The built-in **file browser** works the same on every platform. It shows
   only documents Akshara can open, has quick links to Documents, Home and
   Desktop, and can create folders.
+- **Microsoft Word and Excel files** (`.docx`, `.xlsx`, and the macro and
+  template variants `.docm`, `.dotx`, `.xlsm`, `.xltx`) open in Writer and
+  Calc. They are imported: the tab shows the file's name, and *Save* asks
+  where to save it as OpenDocument (`report.docx` becomes `report.odt`);
+  the original file is never changed. Macros are never run. Old binary
+  `.doc` and `.xls` files and password protected Office files cannot be
+  opened: save them as `.docx` / `.xlsx` without a password in Office
+  first.
+
+  Word: text and its formatting, styles (headings, title, quotations),
+  lists, tables, links, page breaks, page numbers, text boxes, the page
+  size and margin, and the header and footer come across. Excel: sheets,
+  values, formulas, styles, number formats, column widths, print ranges,
+  title rows and the page setup. Images, charts, comments, footnotes,
+  merged cells (their content is kept in the first cell) and conditional
+  formatting are not imported, and an Excel formula Akshara does not know
+  keeps its last calculated value.
 - The **Appearance** button (sun/moon icon) in the title bar chooses:
   - **Theme:** system (the default), light or dark.
   - **Look and feel:** *Native* (the default) or *Material Design*.
@@ -269,7 +286,8 @@ and saved again:
   kept), repeated title columns, manual page breaks, a different page
   setup per sheet, and custom header and footer text; cell borders are
   drawn as light grid lines.
-- All: password-protected documents (they are refused), and Microsoft
-  Office formats (`.docx`, `.xlsx`).
+- All: password-protected documents (they are refused), saving in
+  Microsoft Office formats (Word and Excel files can only be opened), and
+  old binary `.doc` / `.xls` files.
 
 Keep an original copy when editing complex documents made elsewhere.

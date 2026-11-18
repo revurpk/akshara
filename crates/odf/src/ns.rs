@@ -33,6 +33,16 @@ pub const NAMESPACES: &[(&str, &str)] = &[
     ("grddl", "http://www.w3.org/2003/g/data-view#"),
     ("loext", "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0"),
     ("calcext", "urn:org:documentfoundation:names:experimental:calc:xmlns:calcext:1.0"),
+    // Office Open XML (Word and Excel files, read-only), transitional and
+    // strict variants.
+    ("w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main"),
+    ("w", "http://purl.oclc.org/ooxml/wordprocessingml/main"),
+    ("x", "http://schemas.openxmlformats.org/spreadsheetml/2006/main"),
+    ("x", "http://purl.oclc.org/ooxml/spreadsheetml/main"),
+    ("r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships"),
+    ("r", "http://purl.oclc.org/ooxml/officeDocument/relationships"),
+    ("pr", "http://schemas.openxmlformats.org/package/2006/relationships"),
+    ("cp", "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"),
 ];
 
 /// Returns the conventional prefix for a namespace URI, if it is known.

@@ -38,7 +38,7 @@ Colours are `"#rrggbb"` strings, or `null` to reset.
 | `new_labels` | `sheet` (id from `paper_sizes`), `text?`, `same?` (default true: every label gets `text`; false: one label per blank-line separated entry) | `{doc, kind}` |
 | `paper_sizes` | | `{papers: [{id, name, kind: sheet/envelope/card, width, height}], labels: [{id, name, paper, cols, rows, width, height, top, left, h_pitch, v_pitch}]}` |
 | `pdf_from_pngs` | `pngs` (page image paths), `width, height` (page size in points), `path`, `title?` | page count; writes a PDF with one image per page (used for printing) |
-| `open` | `path` (kind from the extension: odt ott txt / ods ots csv tsv / odf otf mml) | `{doc, kind}` |
+| `open` | `path` (kind from the extension: odt ott txt docx docm dotx / ods ots csv tsv xlsx xlsm xltx / odf otf mml; Word and Excel files are imported read-only, `.doc`/`.xls` give an `unsupported` error) | `{doc, kind}` |
 | `save` | `doc`, `path` (format from the extension), `sheet?`, `sanitize?` (CSV) | info |
 | `close` | `doc` | `true` if it was open |
 | `info` | `doc` | `{kind, modified, can_undo, can_redo, title}` |

@@ -292,3 +292,57 @@ fn calc_print_area() {
     assert_eq!(err_kind(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "repeat_rows": "0"})), "invalid");
     assert_eq!(err_kind(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "repeat_rows": "5:2"})), "invalid");
 }
+
+/// A minimal OOXML package: `_rels/.rels` pointing at `main`, plus parts.
+fn ooxml(main: &str, parts: &[(&str, String)]) -> Vec<u8> {
+    let mut pkg = office_odf::Package::new("");
+    let rels = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+         <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"{main}\"/></Relationships>"
+    );
+    pkg.insert("_rels/.rels", rels.into_bytes()).expect("rels");
+    for (name, xml) in parts {
+        pkg.insert(*name, xml.clone().into_bytes()).expect("part");
+    }
+    pkg.write().expect("zip")
+}
+
+#[test]
+fn word_and_excel_files_open_read_only() {
+    let docx = ooxml("word/document.xml", &[(
+        "word/document.xml",
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:body>\
+         <w:p><w:r><w:rPr><w:b/></w:rPr><w:t>Hello from Word</w:t></w:r></w:p></w:body></w:document>".to_owned(),
+    )]);
+    let path = temp("letter.docx");
+    std::fs::write(&path, docx).expect("write docx");
+    let opened = ok(json!({"op": "open", "path": path}));
+    assert_eq!(opened["kind"], json!("writer"));
+    let got = ok(json!({"op": "writer.get", "doc": opened["doc"]}));
+    assert_eq!(got["blocks"][0]["runs"][0]["text"], json!("Hello from Word"));
+    assert_eq!(got["blocks"][0]["runs"][0]["bold"], json!(true));
+    // Saving in the Word format is not offered.
+    assert_eq!(err_kind(json!({"op": "save", "doc": opened["doc"], "path": temp("x.docx")})), "unsupported");
+
+    let main = "xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"";
+    let xlsx = ooxml("xl/workbook.xml", &[
+        ("xl/workbook.xml", format!("<workbook {main}><sheets><sheet name=\"Data\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>")),
+        ("xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+          <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/></Relationships>".to_owned()),
+        ("xl/worksheets/sheet1.xml", format!("<worksheet {main}><sheetData><row r=\"1\"><c r=\"A1\"><v>2</v></c><c r=\"B1\"><f>A1*21</f><v>42</v></c></row></sheetData></worksheet>")),
+    ]);
+    let path = temp("book.xlsx");
+    std::fs::write(&path, xlsx).expect("write xlsx");
+    let opened = ok(json!({"op": "open", "path": path}));
+    assert_eq!(opened["kind"], json!("calc"));
+    let cell = ok(json!({"op": "calc.cell", "doc": opened["doc"], "sheet": 0, "cell": "B1"}));
+    assert_eq!((cell["input"].clone(), cell["display"].clone()), (json!("=A1*21"), json!("42")));
+    assert_eq!(ok(json!({"op": "calc.sheets", "doc": opened["doc"]}))[0]["name"], json!("Data"));
+
+    // Old binary Office files get a clear message.
+    let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+    ole.resize(512, 0);
+    let path = temp("old.doc");
+    std::fs::write(&path, ole).expect("write doc");
+    assert_eq!(err_kind(json!({"op": "open", "path": path})), "unsupported");
+}

@@ -63,7 +63,25 @@ class OpenDoc extends ChangeNotifier {
   /// Untitled documents get a number for their tab title.
   int untitledNumber = 0;
 
-  String get title => path == null ? t('Untitled {kind} {n}', {'kind': kind.label, 'n': untitledNumber}) : baseName(path!);
+  /// The file a document was imported from (Word, Excel, text...), which
+  /// is not where it will be saved.
+  String? importedFrom;
+
+  String get title => path != null
+      ? baseName(path!)
+      : importedFrom != null
+          ? baseName(importedFrom!)
+          : t('Untitled {kind} {n}', {'kind': kind.label, 'n': untitledNumber});
+
+  /// File name offered by "Save as": the document's name with the native
+  /// extension (`report.docx` -> `report.odt`).
+  String get suggestedSaveName {
+    final source = path ?? importedFrom;
+    if (source == null) return 'Untitled.${kind.nativeExtension}';
+    final name = baseName(source);
+    final dot = name.lastIndexOf('.');
+    return '${dot > 0 ? name.substring(0, dot) : name}.${kind.nativeExtension}';
+  }
 
   /// Whether saving to [path] would keep everything (native format).
   bool get hasNativePath {

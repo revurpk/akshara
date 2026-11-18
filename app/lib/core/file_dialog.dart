@@ -14,6 +14,8 @@ import 'paths.dart';
 /// File types the suite can open, by extension.
 const openableExtensions = <String>{
   'odt', 'ott', 'txt', 'ods', 'ots', 'csv', 'tsv', 'odf', 'otf', 'mml',
+  // Microsoft Office, opened read-only (saved as OpenDocument).
+  'docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'xltx',
 };
 
 String extensionOf(String path) {
@@ -28,12 +30,18 @@ IconData iconForExtension(String ext) {
   switch (ext) {
     case 'odt':
     case 'ott':
+    case 'docx':
+    case 'docm':
+    case 'dotx':
     case 'txt':
     case 'html':
     case 'md':
       return Icons.description_outlined;
     case 'ods':
     case 'ots':
+    case 'xlsx':
+    case 'xlsm':
+    case 'xltx':
     case 'csv':
     case 'tsv':
       return Icons.grid_on_outlined;

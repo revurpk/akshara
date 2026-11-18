@@ -6,8 +6,8 @@ package installs for the current user only.
 ## Linux
 
 ```bash
-tar xzf akshara-0.1.7-linux-x64.tar.gz
-cd akshara-0.1.7-linux-x64
+tar xzf akshara-0.1.8-linux-x64.tar.gz
+cd akshara-0.1.8-linux-x64
 ./install.sh
 ```
 
@@ -22,17 +22,17 @@ desktop distributions).
 
 ## Windows
 
-Run `akshara-0.1.7-windows-x64-setup.exe`. It installs into
+Run `akshara-0.1.8-windows-x64-setup.exe`. It installs into
 `%LOCALAPPDATA%\Programs\Akshara` without a UAC prompt, creates Start menu
 and (optionally) desktop shortcuts, and can register Akshara for OpenDocument
 files for your account only. Uninstall it from *Settings → Apps*.
 
-Alternatively, unzip `akshara-0.1.7-windows-x64-portable.zip` anywhere and run
+Alternatively, unzip `akshara-0.1.8-windows-x64-portable.zip` anywhere and run
 `akshara.exe`.
 
 ## macOS
 
-Open `akshara-0.1.7-macos.dmg` and either double-click **Install for me**
+Open `akshara-0.1.8-macos.dmg` and either double-click **Install for me**
 (it copies the app to `~/Applications`), or drag **Akshara.app** to the
 `Applications` folder in your home directory. Builds signed ad hoc must be
 opened once with right-click → *Open*.

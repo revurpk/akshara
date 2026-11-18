@@ -263,6 +263,7 @@ class ShellState extends State<Shell> {
           !(doc.kind == DocKind.math && ext == 'mml')) {
         // Imported from a foreign format: saving goes to "Save as".
         doc.path = null;
+        doc.importedFrom = path;
         doc.untitledNumber = ++_untitled;
       }
       widget.settings.addRecent(path);
@@ -290,14 +291,12 @@ class ShellState extends State<Shell> {
     if (doc == null) return false;
     String? target = saveAs || !doc.hasNativePath ? null : doc.path;
     if (target == null) {
-      final suggested = doc.path != null
-          ? baseName(doc.path!)
-          : 'Untitled.${doc.kind.nativeExtension}';
+      final source = doc.path ?? doc.importedFrom;
       target = await showSaveDialog(
         context,
-        suggestedName: suggested,
+        suggestedName: doc.path != null ? baseName(doc.path!) : doc.suggestedSaveName,
         formats: doc.kind.saveFormats,
-        startDir: doc.path != null ? File(doc.path!).parent.path : null,
+        startDir: source != null ? File(source).parent.path : null,
       );
       if (target == null) return false;
     }

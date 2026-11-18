@@ -33,6 +33,7 @@ mod error;
 mod limits;
 pub mod meta;
 pub mod ns;
+pub mod ooxml;
 mod package;
 pub mod util;
 pub mod xml;

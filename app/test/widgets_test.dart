@@ -334,6 +334,25 @@ void main() {
     await tester.pumpAndSettle();
   }, skip: skip != null);
 
+  testWidgets('Word and Excel files open as imports named after the file', (tester) async {
+    await tester.pumpWidget(const AksharaApp());
+    await tester.pumpAndSettle();
+    final shell = tester.state<ShellState>(find.byType(Shell));
+    await tester.runAsync(() => shell.openPath(File('test/fixtures/sample.docx').absolute.path));
+    await tester.pumpAndSettle();
+    expect(find.byType(WriterPage), findsOneWidget);
+    expect(find.text('sample.docx'), findsOneWidget, reason: 'tab named after the Word file');
+    expect(find.text('Hello from Word'), findsOneWidget);
+
+    await tester.runAsync(() => shell.openPath(File('test/fixtures/sample.xlsx').absolute.path));
+    await tester.pumpAndSettle();
+    expect(find.byType(CalcPage), findsOneWidget);
+    expect(find.text('sample.xlsx'), findsOneWidget);
+    // Imported, not opened in place: saving offers ODF under the same name.
+    final doc = OpenDoc(0, DocKind.calc, null)..importedFrom = '/x/sample.xlsx';
+    expect(doc.suggestedSaveName, 'sample.ods');
+  }, skip: skip != null);
+
   testWidgets('calc: typing into the grid enters values and formulas', (tester) async {
     final doc = newDoc(DocKind.calc);
     await tester.pumpWidget(host(CalcPage(doc: doc)));

@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "akshara-ffi"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "office-calc",
  "office-indic",
@@ -312,7 +312,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "icongen"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "resvg",
 ]
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "office-calc"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "office-odf",
  "proptest",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "office-indic"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "proptest",
  "teltools",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "office-math"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "office-odf",
  "proptest",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "office-odf"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "proptest",
  "zip",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "office-writer"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "flate2",
  "office-odf",

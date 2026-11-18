@@ -86,7 +86,9 @@ impl Package {
         let mut total: u64 = 0;
         for index in 0..archive.len() {
             let mut file = archive.by_index(index).map_err(zip_err)?;
-            let name = file.name().map_err(zip_err)?.into_owned();
+            // Some Windows tools write `xl\styles.xml`; read it as a normal
+            // path. The checks below still reject `..`, absolute paths etc.
+            let name = file.name().map_err(zip_err)?.replace('\\', "/");
             if file.is_dir() {
                 continue;
             }

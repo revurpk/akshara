@@ -385,6 +385,10 @@ impl Registry {
         let limits = self.limits.clone();
         let doc = match ext {
             "odt" | "ott" | "txt" | "text" => Doc::Writer(Box::new(writer::load(bytes, &limits)?)),
+            // Microsoft Office: read only (saving goes to ODF). Old binary
+            // .doc/.xls files get a clear "not supported" error.
+            "docx" | "docm" | "dotx" | "dotm" | "doc" => Doc::Writer(Box::new(writer::load_docx(bytes, &limits)?)),
+            "xlsx" | "xlsm" | "xltx" | "xltm" | "xls" => Doc::Calc(Box::new(calc::load_xlsx(bytes, &limits)?)),
             "ods" | "ots" => Doc::Calc(Box::new(calc::load_ods(bytes, &limits)?)),
             "csv" => Doc::Calc(Box::new(calc::load_csv(bytes, None, &limits)?)),
             "tsv" | "tab" => Doc::Calc(Box::new(calc::load_csv(bytes, Some('\t'), &limits)?)),
