@@ -269,4 +269,8 @@ const Map<String, String> knStrings = {
   "Convert script to {script}": "ಲಿಪಿಯನ್ನು ಬದಲಿಸಿ: {script}",
   "Convert text": "ಪಠ್ಯವನ್ನು ಬದಲಿಸಿ",
   "Converted {n} cell(s).": "{n} ಕೋಶಗಳನ್ನು ಬದಲಿಸಲಾಗಿದೆ.",
+  "Appearance": "ರೂಪ",
+  "Look and feel": "ಶೈಲಿ",
+  "Native ({platform})": "{platform} ರೀತಿ",
+  "Material Design": "ಮೆಟೀರಿಯಲ್ ಡಿಸೈನ್",
 };

@@ -269,4 +269,8 @@ const Map<String, String> orStrings = {
   "Convert script to {script}": "ଲିପି ବଦଳାନ୍ତୁ: {script}",
   "Convert text": "ପାଠ୍ୟ ବଦଳାନ୍ତୁ",
   "Converted {n} cell(s).": "{n}ଟି ସେଲ୍ ବଦଳାଗଲା।",
+  "Appearance": "ରୂପ",
+  "Look and feel": "ଶୈଳୀ",
+  "Native ({platform})": "{platform} ପରି",
+  "Material Design": "ମେଟେରିଆଲ୍ ଡିଜାଇନ୍",
 };

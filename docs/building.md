@@ -13,7 +13,7 @@ Visual Studio) must be installed once.
 3. Check with `cargo --version` and `flutter doctor`.
 
 The app has no third-party Dart packages, only the Flutter SDK and the
-first-party `material_ui` package, so after the first `flutter pub get` it
+first-party `material_ui` and `cupertino_ui` packages, so after the first `flutter pub get` it
 builds offline (`flutter pub get --offline`).
 
 ## Rust core and tests

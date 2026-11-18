@@ -269,4 +269,8 @@ const Map<String, String> hiStrings = {
   "Convert script to {script}": "लिपि बदलें: {script}",
   "Convert text": "पाठ बदलें",
   "Converted {n} cell(s).": "{n} सेल बदले गए।",
+  "Appearance": "रूप-रंग",
+  "Look and feel": "शैली",
+  "Native ({platform})": "{platform} जैसा",
+  "Material Design": "मटीरियल डिज़ाइन",
 };

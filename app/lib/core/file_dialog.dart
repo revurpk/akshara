@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../l10n/l10n.dart';
 
+import 'look.dart';
 import 'paths.dart';
 
 /// File types the suite can open, by extension.
@@ -178,16 +179,14 @@ class _FileDialogState extends State<FileDialog> {
     }
     final path = '${_dir.path}${Platform.pathSeparator}$name';
     if (File(path).existsSync()) {
-      final replace = await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: Text(t('Replace file?')),
-          content: Text(t('"{name}" already exists. Do you want to replace it?', {'name': name})),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: Text(t('Cancel'))),
-            FilledButton(onPressed: () => Navigator.pop(c, true), child: Text(t('Replace'))),
-          ],
-        ),
+      final replace = await showChoice<bool>(
+        context,
+        title: t('Replace file?'),
+        message: t('"{name}" already exists. Do you want to replace it?', {'name': name}),
+        choices: [
+          DialogChoice(t('Cancel'), false),
+          DialogChoice(t('Replace'), true, primary: true, destructive: true),
+        ],
       );
       if (replace != true) return;
     }
@@ -393,14 +392,12 @@ String _two(int v) => v.toString().padLeft(2, '0');
 
 /// Shows an error message.
 Future<void> showError(BuildContext context, String title, Object error) {
-  return showDialog<void>(
-    context: context,
-    builder: (c) => AlertDialog(
-      icon: const Icon(Icons.error_outline),
-      title: Text(title),
-      content: SelectableText(error.toString()),
-      actions: [FilledButton(onPressed: () => Navigator.pop(c), child: Text(t('OK')))],
-    ),
+  return showChoice<void>(
+    context,
+    icon: const Icon(Icons.error_outline),
+    title: title,
+    message: error.toString(),
+    choices: [DialogChoice(t('OK'), null, primary: true)],
   );
 }
 

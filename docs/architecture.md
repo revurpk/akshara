@@ -10,7 +10,7 @@ C ABI carrying JSON.
 │ writer/    paragraph editors (one TextField per paragraph)         │
 │ calc/      custom-painted virtual grid, formula bar, sheet tabs    │
 │ math/      StarMath editor + widget-based formula renderer         │
-│ core/      native.dart (dart:ffi), file dialog, paths, fonts       │
+│ core/      native.dart (dart:ffi), file dialog, paths, fonts, look │
 │ l10n/      9 UI languages                                          │
 └───────────────┬────────────────────────────────────────────────────┘
                 │ akshara_call(JSON) -> JSON   (crates/ffi, C ABI)
@@ -33,7 +33,8 @@ C ABI carrying JSON.
   thing an office suite does, and it happens entirely in safe Rust
   (`unsafe_code = "forbid"` in every core crate).
 - **No code generators, no plugins.** The FFI is three C functions. The app
-  depends only on the Flutter SDK and the first-party `material_ui` package,
+  depends only on the Flutter SDK and the first-party `material_ui` and
+  `cupertino_ui` packages,
   so it builds offline and has no third-party native code.
 
 ## The core crates
@@ -135,6 +136,13 @@ C ABI carrying JSON.
 - **Math**: the parser's JSON tree is rendered with nested widgets: stacked
   fractions, shrunken scripts, painted radicals, and stretchy brackets painted
   to the height of their content.
+- **Look and feel** (`core/look.dart`): `buildTheme` builds one theme per
+  platform (Fluent-style Windows, macOS/iOS, GNOME/Adwaita Linux, Material 3
+  Android) from first-party Material components, plus a single Material look.
+  The native look is the default. `showChoice` shows Cupertino alerts on
+  Apple systems and orders buttons the way each platform does. Only
+  first-party libraries are used (`material_ui`, `cupertino_ui`). Documents
+  keep the bundled fonts in every look.
 - **Fonts**: every text style uses the bundled Noto families with a fallback
   chain that covers all supported scripts (`core/fonts.dart`).
 - **Localization**: `t('English text')` looks up the current language's table

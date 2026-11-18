@@ -68,5 +68,5 @@ and in Finder (file sharing is enabled).
 | macOS | `~/Library/Application Support/Akshara/` (inside the sandbox container) |
 | Android / iOS | inside the app's private storage |
 
-The settings file contains only the interface language, the theme and the
-recent-files list.
+The settings file contains only the interface language, the theme, the look
+and feel, the transliteration preferences and the recent-files list.

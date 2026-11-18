@@ -269,4 +269,8 @@ const Map<String, String> teStrings = {
   "Convert script to {script}": "లిపిని మార్చు: {script}",
   "Convert text": "పాఠ్యాన్ని మార్చు",
   "Converted {n} cell(s).": "{n} సెల్‌లు మార్చబడ్డాయి.",
+  "Appearance": "రూపం",
+  "Look and feel": "శైలి",
+  "Native ({platform})": "{platform} లాగా",
+  "Material Design": "మెటీరియల్ డిజైన్",
 };

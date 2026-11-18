@@ -269,4 +269,8 @@ const Map<String, String> taStrings = {
   "Convert script to {script}": "எழுத்துமுறையை மாற்று: {script}",
   "Convert text": "உரையை மாற்று",
   "Converted {n} cell(s).": "{n} கலங்கள் மாற்றப்பட்டன.",
+  "Appearance": "தோற்றம்",
+  "Look and feel": "நடை",
+  "Native ({platform})": "{platform} போல",
+  "Material Design": "மெட்டீரியல் டிசைன்",
 };

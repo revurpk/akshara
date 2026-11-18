@@ -269,4 +269,8 @@ const Map<String, String> saStrings = {
   "Convert script to {script}": "लिपिं परिवर्तयतु: {script}",
   "Convert text": "पाठं परिवर्तयतु",
   "Converted {n} cell(s).": "{n} कोष्ठाः परिवर्तिताः।",
+  "Appearance": "रूपम्",
+  "Look and feel": "शैली",
+  "Native ({platform})": "{platform}-सदृशम्",
+  "Material Design": "मटीरियल्-डिज़ाइन्",
 };

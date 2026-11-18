@@ -14,7 +14,26 @@
 - The built-in **file browser** works the same on every platform. It shows
   only documents Akshara can open, has quick links to Documents, Home and
   Desktop, and can create folders.
-- The theme button cycles through system, light and dark.
+- The **Appearance** button (sun/moon icon) in the title bar chooses:
+  - **Theme:** system (the default), light or dark.
+  - **Look and feel:** *Native* (the default) or *Material Design*.
+
+### Native look and feel
+
+By default Akshara looks like the system it runs on:
+
+| System | Native look |
+|---|---|
+| Windows | Fluent style: Segoe UI, Windows blue accent, square-ish 4 px corners, Windows button order (*Save · Don't save · Cancel*) |
+| macOS, iOS | Apple style: San Francisco font, system blue, Cupertino alerts and page transitions |
+| Linux | GNOME/Adwaita style: the desktop's font (Adwaita Sans, Cantarell or Ubuntu), GNOME blue, rounded flat surfaces |
+| Android | Material 3, Android's own design, with Roboto |
+
+None of the native looks draw Material ink ripples, except Android's. *Material
+Design* gives the same saffron-coloured Material look on every device
+instead. Either way, Indian scripts in the interface still use the bundled
+Noto fonts, and documents are unaffected: pages, cells and formulas look
+the same everywhere.
 
 ## Typing in Indian languages
 

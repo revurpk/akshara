@@ -269,4 +269,8 @@ const Map<String, String> mlStrings = {
   "Convert script to {script}": "ലിപി മാറ്റുക: {script}",
   "Convert text": "വാചകം മാറ്റുക",
   "Converted {n} cell(s).": "{n} സെല്ലുകൾ മാറ്റി.",
+  "Appearance": "രൂപം",
+  "Look and feel": "ശൈലി",
+  "Native ({platform})": "{platform} പോലെ",
+  "Material Design": "മെറ്റീരിയൽ ഡിസൈൻ",
 };

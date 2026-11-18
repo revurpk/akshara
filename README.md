@@ -36,6 +36,9 @@ access and no administrator rights**.
   Writer, Calc and Math. No system keyboard setup is needed. You can also
   convert existing text between scripts and to or from IAST
   (`satyamEva jayatE` → सत्यमेव जयते → *satyameva jayate*).
+- **Native look and feel by default:** Fluent-style on Windows, Apple style
+  on macOS and iOS, GNOME style on Linux and Material 3 on Android. You can
+  switch to one Material Design look for all devices in *Appearance*.
 - **Bundled Google Noto fonts** (SIL Open Font License) for Latin,
   Devanagari, Bengali, Odia, Telugu, Tamil, Kannada, Malayalam and maths. Text
   looks the same on every device, even without system fonts.
@@ -49,7 +52,7 @@ access and no administrator rights**.
   The output is deterministic, and saves are atomic.
 - **Tested:** 182 Rust tests (unit, behavioural and property-based fuzzing of
   every parser) plus 16 for the vendored teltools (byte-identical with
-  upstream's own test vectors), and 26 Flutter tests that drive the real Rust
+  upstream's own test vectors), and 31 Flutter tests that drive the real Rust
   library.
 
 ## Quick start (desktop)
@@ -104,7 +107,7 @@ docs/           Architecture, security, protocol, building, user guide
 cargo test --workspace                       # Rust: 182 tests incl. property tests
 (cd third_party/teltools && cargo test)      # vendored teltools vs upstream vectors
 cargo clippy --workspace --all-targets       # lint (clean)
-cargo build -p akshara-ffi && (cd app && flutter test)   # Flutter: 26 tests, real core
+cargo build -p akshara-ffi && (cd app && flutter test)   # Flutter: 31 tests, real core
 (cd app && flutter analyze)                  # Dart analyzer (clean)
 ```
 

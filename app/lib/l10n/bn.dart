@@ -269,4 +269,8 @@ const Map<String, String> bnStrings = {
   "Convert script to {script}": "লিপি বদলান: {script}",
   "Convert text": "পাঠ্য রূপান্তর",
   "Converted {n} cell(s).": "{n}টি ঘর রূপান্তরিত হয়েছে।",
+  "Appearance": "চেহারা",
+  "Look and feel": "শৈলী",
+  "Native ({platform})": "{platform}-এর মতো",
+  "Material Design": "ম্যাটেরিয়াল ডিজাইন",
 };

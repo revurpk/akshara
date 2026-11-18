@@ -133,6 +133,15 @@ class Settings {
     _save();
   }
 
+  /// Interface style: 'native' (default, the platform's own look) or
+  /// 'material'.
+  String get uiStyle => (_data['ui_style'] as String?) ?? 'native';
+
+  set uiStyle(String value) {
+    _data['ui_style'] = value;
+    _save();
+  }
+
   void _save() {
     try {
       final tmp = File('${_file.path}.tmp');

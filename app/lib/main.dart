@@ -16,15 +16,14 @@ import 'l10n/l10n.dart';
 import 'calc/calc_page.dart';
 import 'core/document.dart';
 import 'core/file_dialog.dart';
-import 'core/fonts.dart';
+import 'core/look.dart';
 import 'core/native.dart';
 import 'core/paths.dart';
 import 'core/translit.dart';
 import 'math/math_page.dart';
 import 'writer/writer_page.dart';
 
-/// Brand colours: saffron and palm-leaf cream.
-const brandSaffron = Color(0xFFD9640F);
+/// Brand colours: saffron (see core/look.dart) and palm-leaf cream.
 const brandLeaf = Color(0xFFF6E7C1);
 
 void main(List<String> args) {
@@ -54,7 +53,17 @@ class _AksharaAppState extends State<AksharaApp> {
       saved == null ? AppLanguage.system() : AppLanguage.fromCode(saved),
     );
     _loadTranslit();
+    LookSettings.instance.load(_settings);
+    LookSettings.instance.addListener(_onLook);
   }
+
+  @override
+  void dispose() {
+    LookSettings.instance.removeListener(_onLook);
+    super.dispose();
+  }
+
+  void _onLook() => setState(() {});
 
   void _loadTranslit() => TranslitSettings.instance.load(_settings, currentLanguage);
 
@@ -73,29 +82,11 @@ class _AksharaAppState extends State<AksharaApp> {
     _ => ThemeMode.system,
   };
 
-  void _cycleTheme() {
-    setState(() {
-      _settings.themeMode = switch (_settings.themeMode) {
-        'system' => 'light',
-        'light' => 'dark',
-        _ => 'system',
-      };
-    });
-  }
+  void _setTheme(String mode) => setState(() => _settings.themeMode = mode);
 
   @override
   Widget build(BuildContext context) {
-    ThemeData theme(Brightness b) => ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: brandSaffron, brightness: b),
-      useMaterial3: true,
-      // Bundled Noto fonts: Latin plus every supported Indic script.
-      fontFamily: uiFont,
-      fontFamilyFallback: indicFallback,
-      visualDensity: VisualDensity.compact,
-      tooltipTheme: const TooltipThemeData(
-        waitDuration: Duration(milliseconds: 500),
-      ),
-    );
+    final look = LookSettings.instance.look;
     final language = currentLanguage;
     return MaterialApp(
       // No key here: a language change rebuilds the tree in place, so open
@@ -107,14 +98,14 @@ class _AksharaAppState extends State<AksharaApp> {
         for (final l in AppLanguage.values) Locale(l.materialCode),
       }.toList(),
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: theme(Brightness.light),
-      darkTheme: theme(Brightness.dark),
+      theme: buildTheme(look, Brightness.light),
+      darkTheme: buildTheme(look, Brightness.dark),
       themeMode: _mode,
       home: Shell(
         settings: _settings,
         initialFiles: widget.initialFiles,
         themeMode: _settings.themeMode,
-        onCycleTheme: _cycleTheme,
+        onTheme: _setTheme,
         onLanguage: _setLanguage,
       ),
     );
@@ -127,14 +118,14 @@ class Shell extends StatefulWidget {
     required this.settings,
     required this.initialFiles,
     required this.themeMode,
-    required this.onCycleTheme,
+    required this.onTheme,
     required this.onLanguage,
   });
 
   final Settings settings;
   final List<String> initialFiles;
   final String themeMode;
-  final VoidCallback onCycleTheme;
+  final ValueChanged<String> onTheme;
   final ValueChanged<AppLanguage> onLanguage;
 
   @override
@@ -312,28 +303,15 @@ class ShellState extends State<Shell> {
     final doc = _docs[index];
     if (doc.modified) {
       setState(() => _active = index);
-      final choice = await showDialog<String>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: Text(t('Save changes to "{name}"?', {'name': doc.title})),
-          content: Text(
-            t('Your changes will be lost if you don\'t save them.'),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c, 'discard'),
-              child: Text(t('Don\'t save')),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, 'cancel'),
-              child: Text(t('Cancel')),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(c, 'save'),
-              child: Text(t('Save')),
-            ),
-          ],
-        ),
+      final choice = await showChoice<String>(
+        context,
+        title: t('Save changes to "{name}"?', {'name': doc.title}),
+        message: t('Your changes will be lost if you don\'t save them.'),
+        choices: [
+          DialogChoice(t('Don\'t save'), 'discard', destructive: true),
+          DialogChoice(t('Cancel'), 'cancel'),
+          DialogChoice(t('Save'), 'save', primary: true),
+        ],
       );
       if (choice == null || choice == 'cancel') return;
       if (choice == 'save' && !await save()) return;
@@ -537,15 +515,7 @@ class ShellState extends State<Shell> {
               ],
               onSelected: widget.onLanguage,
             ),
-            IconButton(
-              tooltip: '${t('Theme')}: ${t(widget.themeMode)}',
-              icon: Icon(switch (widget.themeMode) {
-                'light' => Icons.light_mode_outlined,
-                'dark' => Icons.dark_mode_outlined,
-                _ => Icons.brightness_auto_outlined,
-              }),
-              onPressed: widget.onCycleTheme,
-            ),
+            _AppearanceButton(themeMode: widget.themeMode, onTheme: widget.onTheme),
             IconButton(
               tooltip: t('About'),
               icon: const Icon(Icons.info_outline),
@@ -573,6 +543,53 @@ class ShellState extends State<Shell> {
       applicationLegalese: t(
         'Licensed under the Apache License 2.0. An independent implementation of the OpenDocument formats used by Apache OpenOffice; not affiliated with the Apache Software Foundation. Fonts: Google Noto (SIL Open Font License 1.1).',
       ),
+    );
+  }
+}
+
+/// Title-bar menu for the colour theme and the look and feel.
+class _AppearanceButton extends StatelessWidget {
+  const _AppearanceButton({required this.themeMode, required this.onTheme});
+
+  final String themeMode;
+  final ValueChanged<String> onTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final looks = LookSettings.instance;
+    final header = Theme.of(context).textTheme.labelMedium;
+    return PopupMenuButton<String>(
+      tooltip: t('Appearance'),
+      icon: Icon(switch (themeMode) {
+        'light' => Icons.light_mode_outlined,
+        'dark' => Icons.dark_mode_outlined,
+        _ => Icons.brightness_auto_outlined,
+      }),
+      itemBuilder: (_) => [
+        PopupMenuItem(enabled: false, height: 28, child: Text(t('Theme'), style: header)),
+        for (final mode in ['system', 'light', 'dark'])
+          CheckedPopupMenuItem(value: 'theme:$mode', checked: themeMode == mode, child: Text(t(mode))),
+        const PopupMenuDivider(),
+        PopupMenuItem(enabled: false, height: 28, child: Text(t('Look and feel'), style: header)),
+        CheckedPopupMenuItem(
+          value: 'style:native',
+          checked: looks.style == UiStyle.native,
+          child: Text(t('Native ({platform})', {'platform': Look.host.platformName})),
+        ),
+        CheckedPopupMenuItem(
+          value: 'style:material',
+          checked: looks.style == UiStyle.material,
+          child: Text(t('Material Design')),
+        ),
+      ],
+      onSelected: (v) {
+        final value = v.substring(v.indexOf(':') + 1);
+        if (v.startsWith('theme:')) {
+          onTheme(value);
+        } else {
+          looks.style = UiStyle.fromName(value);
+        }
+      },
     );
   }
 }
