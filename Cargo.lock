@@ -10,7 +10,7 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "akshara-ffi"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "office-calc",
  "office-indic",
@@ -122,9 +122,9 @@ dependencies = [
 
 [[package]]
 name = "bytes"
-version = "1.12.1"
+version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
+checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "cfg-if"
@@ -312,7 +312,7 @@ checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
 name = "icongen"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "resvg",
 ]
@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "office-calc"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "office-odf",
  "proptest",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "office-indic"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "teltools",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "office-math"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "office-odf",
  "proptest",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "office-odf"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "proptest",
  "zip",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "office-writer"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "flate2",
  "office-odf",
@@ -1101,9 +1101,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
+checksum = "85ccff8a4805aba1eaa4cd4afcd49f7557dd2cf5fd79ffc37f8959466effc5aa"
 dependencies = [
  "zeroize_derive",
 ]
@@ -1121,9 +1121,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "9.6.1"
+version = "9.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "953a376f4930ed5af88e1e65948385f76866b45e7f75b21ac275327d0eeb9b46"
+checksum = "08687262e7c0f1284b259686f322805a8adaa8ef4d7210e76448950b3f083bf7"
 dependencies = [
  "constant_time_eq",
  "crc32fast",
