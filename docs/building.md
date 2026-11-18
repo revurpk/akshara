@@ -46,16 +46,52 @@ use a prebuilt library instead.
 ## Windows desktop
 
 Needs Visual Studio 2022 (or the Build Tools) with the "Desktop development
-with C++" workload, Rust with the MSVC toolchain, and Flutter. Run in Git Bash:
+with C++" workload, Rust with the MSVC toolchain, Git, Flutter, and
+[Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer.
+
+The easiest way to get a Windows installer is the PowerShell script. It
+checks every dependency, fetches what is missing, and then builds:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\windows\build-installer.ps1
+```
+
+| Dependency | If missing |
+|---|---|
+| Visual Studio 2022 C++ tools + CMake | stops with instructions; `-InstallVsBuildTools` installs them (UAC prompt) |
+| Rust (MSVC, 1.85+) | installs rustup per user (`~\.cargo`) |
+| Git | unpacks MinGit into the tools folder |
+| Flutter (Dart 3.14+) | unpacks the current stable SDK into the tools folder |
+| Inno Setup 6 | installs it per user into the tools folder |
+
+Fetched tools go to `%LOCALAPPDATA%\Akshara\build-tools` (change with
+`-ToolsDir`) and are reused next time. Apart from the Visual Studio Build
+Tools, nothing needs administrator rights. Every download is over HTTPS and
+is verified before use: rustup and Flutter by their published SHA-256 sums,
+MinGit by GitHub's asset digest, and the installers by their Authenticode
+signatures.
+
+| Option | Effect |
+|---|---|
+| `-CheckOnly` | report which dependencies are present, build nothing |
+| `-Offline` | never download; stop if something is missing |
+| `-InstallVsBuildTools` | install the Visual Studio C++ Build Tools if missing |
+| `-Test` | run the Rust and Flutter tests before packaging |
+| `-NoPortable` | skip the portable zip |
+| `-ToolsDir <path>` | where fetched tools go |
+
+It writes `dist\akshara-<ver>-windows-x64-setup.exe` and
+`dist\akshara-<ver>-windows-x64-portable.zip`, and prints their SHA-256 sums.
+
+With the tools already installed, Git Bash works too:
 
 ```bash
 ./run.sh                                    # build and start
 packaging/windows/build-installer.sh        # per-user setup .exe + portable zip
 ```
 
-The installer needs [Inno Setup 6](https://jrsoftware.org/isinfo.php); its
-per-user install works without admin rights. CMake builds the Rust core and
-installs `akshara.dll` next to the executable.
+CMake builds the Rust core and installs `akshara.dll` next to the
+executable.
 
 ## macOS
 

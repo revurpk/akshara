@@ -2,6 +2,7 @@
 # Builds the Windows release and the per-user installer. Run in Git Bash on
 # Windows with Rust, Flutter and Inno Setup 6 (iscc) installed; all three can
 # be installed without administrator rights.
+# build-installer.ps1 (PowerShell) does the same and also fetches missing tools.
 # Outputs: dist/akshara-<version>-windows-x64-setup.exe and a portable zip.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."

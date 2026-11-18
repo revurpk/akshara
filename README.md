@@ -77,7 +77,9 @@ Every installer works **without sudo or administrator rights**:
 | iOS | signed `.ipa` | via TestFlight, the App Store or your own signing |
 
 See [docs/installing.md](docs/installing.md). Build the packages with the
-scripts in [`packaging/`](packaging/).
+scripts in [`packaging/`](packaging/). On Windows,
+`packaging\windows\build-installer.ps1` also checks for and fetches the build
+tools it needs.
 
 ## Repository layout
 

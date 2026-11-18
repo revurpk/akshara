@@ -1,7 +1,8 @@
 ; Akshara Office: per-user Windows installer (Inno Setup 6).
 ; Installs into %LOCALAPPDATA%\Programs\Akshara without administrator rights
 ; and registers file associations for the current user only (HKCU).
-; Build with packaging/windows/build-installer.sh (or: iscc akshara.iss).
+; Build with packaging/windows/build-installer.ps1 (fetches missing tools),
+; build-installer.sh (Git Bash), or: iscc akshara.iss
 
 #ifndef AppVersion
   #define AppVersion "0.1.0"
