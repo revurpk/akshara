@@ -5,7 +5,7 @@ use office_calc::formula::{parse, Expr, Syntax};
 use office_calc::{
     load, load_csv, load_ods, save_ods, sheet_to_csv, CellAddr, HAlign, NumberFormat, Range, StylePatch, Value,
     Workbook,
-};
+ PageSetup,};
 use office_odf::{ns, Limits, OdfError, Package, Rgb};
 use proptest::prelude::*;
 
@@ -417,4 +417,57 @@ proptest! {
         wb.recalculate_all();
         prop_assert_eq!(incremental, snapshot(&wb));
     }
+}
+
+#[test]
+fn page_setup_round_trips_and_undoes() {
+    let mut wb = Workbook::new();
+    assert_eq!(*wb.page(), PageSetup::default());
+    let page = PageSetup {
+        width: 841.89,
+        height: 595.28,
+        margin: 36.0,
+        scale: 100,
+        fit_width: true,
+        grid: false,
+        header_footer: false,
+    };
+    wb.set_page(page).expect("page");
+    assert!(wb.set_page(PageSetup { scale: 5, ..page }).is_err());
+    assert!(wb.set_page(PageSetup { margin: 400.0, ..page }).is_err());
+    assert!(wb.set_page(PageSetup { width: f32::NAN, ..page }).is_err());
+    let back = load_ods(&save_ods(&wb).expect("save"), &Limits::default()).expect("load");
+    let got = *back.page();
+    assert!((got.width - page.width).abs() < 0.1 && (got.height - page.height).abs() < 0.1);
+    assert!((got.margin - 36.0).abs() < 0.1);
+    assert!(got.fit_width && !got.grid && !got.header_footer);
+    let scaled = PageSetup { fit_width: false, scale: 75, grid: true, header_footer: true, ..page };
+    wb.set_page(scaled).expect("scaled");
+    let back = load_ods(&save_ods(&wb).expect("save"), &Limits::default()).expect("load");
+    assert_eq!((back.page().scale, back.page().fit_width, back.page().grid, back.page().header_footer), (75, false, true, true));
+    assert!(wb.undo());
+    assert!(wb.page().fit_width);
+    assert!(wb.undo());
+    assert_eq!(*wb.page(), PageSetup::default());
+}
+
+#[test]
+fn page_setup_is_read_from_openoffice_files() {
+    let styles = format!(
+        "<office:document-styles {NS_DECL}><office:automatic-styles>\
+         <style:page-layout style:name=\"Mpm1\"><style:page-layout-properties fo:page-width=\"21cm\" fo:page-height=\"29.7cm\" fo:margin-left=\"1cm\" style:print=\"charts drawings zero-values\" style:scale-to=\"80%\"/></style:page-layout>\
+         </office:automatic-styles><office:master-styles>\
+         <style:master-page style:name=\"Default\" style:page-layout-name=\"Mpm1\"><style:header style:display=\"false\"/><style:footer style:display=\"false\"/></style:master-page>\
+         </office:master-styles></office:document-styles>"
+    );
+    let content = format!(
+        "<office:document-content {NS_DECL}><office:body><office:spreadsheet><table:table table:name=\"S\"><table:table-row><table:table-cell/></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>"
+    );
+    let mut pkg = Package::new(ns::MIME_ODS);
+    pkg.insert("content.xml", content.into_bytes()).expect("content");
+    pkg.insert("styles.xml", styles.into_bytes()).expect("styles");
+    let wb = load_ods(&pkg.write().expect("zip"), &Limits::default()).expect("load");
+    let page = wb.page();
+    assert!((page.margin - 28.35).abs() < 0.1);
+    assert_eq!((page.scale, page.grid, page.header_footer, page.fit_width), (80, false, false, false));
 }

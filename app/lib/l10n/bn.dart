@@ -331,4 +331,9 @@ const Map<String, String> bnStrings = {
   "Page": "পৃষ্ঠা",
   "Print…": "মুদ্রণ করুন…",
   "Sent to the printer.": "প্রিন্টারে পাঠানো হয়েছে।",
+  "Fit columns to page width": "কলামগুলো পৃষ্ঠার প্রস্থে মানানসই করুন",
+  "Scale": "স্কেল",
+  "Print grid lines": "গ্রিড লাইন মুদ্রণ করুন",
+  "Header and footer": "শীর্ষলেখ ও পাদলেখ",
+  "Sheet name at the top, page number at the bottom": "উপরে শিটের নাম, নিচে পৃষ্ঠা নম্বর",
 };

@@ -266,3 +266,16 @@ fn pdf_is_built_from_page_images() {
     assert_eq!(err_kind(json!({"op": "pdf_from_pngs", "pngs": [out], "width": 100, "height": 100, "path": temp("x.pdf")})), "invalid");
     assert_eq!(err_kind(json!({"op": "pdf_from_pngs", "pngs": [], "width": 100, "height": 100, "path": temp("y.pdf")})), "invalid");
 }
+
+#[test]
+fn calc_page_setup() {
+    let doc = ok(json!({"op": "new", "kind": "calc"}))["doc"].clone();
+    let page = ok(json!({"op": "calc.page", "doc": doc}));
+    assert_eq!(page["paper"], json!("a4"));
+    assert_eq!((page["scale"].clone(), page["grid"].clone()), (json!(100), json!(true)));
+    ok(json!({"op": "calc.set_page", "doc": doc, "width": 841.89, "height": 595.28, "margin": 36, "fit_width": true, "grid": false}));
+    let page = ok(json!({"op": "calc.page", "doc": doc}));
+    assert_eq!((page["fit_width"].clone(), page["grid"].clone(), page["paper"].clone()), (json!(true), json!(false), json!("a4")));
+    assert_eq!(err_kind(json!({"op": "calc.set_page", "doc": doc, "width": 841.89, "height": 595.28, "margin": 36, "scale": 1000})), "invalid");
+    assert_eq!(ok(json!({"op": "info", "doc": doc}))["can_undo"], json!(true));
+}

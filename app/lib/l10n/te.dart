@@ -331,4 +331,9 @@ const Map<String, String> teStrings = {
   "Page": "పేజీ",
   "Print…": "ముద్రించు…",
   "Sent to the printer.": "ప్రింటర్‌కు పంపబడింది.",
+  "Fit columns to page width": "నిలువు వరుసలను పేజీ వెడల్పుకు సరిపెట్టు",
+  "Scale": "స్కేలు",
+  "Print grid lines": "గ్రిడ్ గీతలు ముద్రించు",
+  "Header and footer": "హెడర్ మరియు ఫుటర్",
+  "Sheet name at the top, page number at the bottom": "పైన షీట్ పేరు, కింద పేజీ సంఖ్య",
 };

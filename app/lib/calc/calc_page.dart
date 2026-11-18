@@ -17,6 +17,7 @@ import '../core/file_dialog.dart';
 import '../core/native.dart';
 import '../core/print_preview.dart';
 import '../core/translit.dart';
+import 'calc_page_setup.dart';
 import 'calc_print.dart';
 
 const int maxRows = 1048576;
@@ -869,6 +870,7 @@ class CalcPageState extends State<CalcPage> {
           IconButton(tooltip: t('Delete rows'), icon: const Icon(Icons.playlist_remove), onPressed: () => _structure('calc.delete', 'row')),
           IconButton(tooltip: t('Delete columns'), icon: const Icon(Icons.delete_sweep_outlined), onPressed: () => _structure('calc.delete', 'col')),
           const _Sep(),
+          IconButton(tooltip: t('Page setup…'), icon: const Icon(Icons.crop_portrait), onPressed: _pageSetup),
           IconButton(tooltip: t('Print (Ctrl+P)'), icon: const Icon(Icons.print_outlined), onPressed: _print),
         ]),
       ),
@@ -878,15 +880,20 @@ class CalcPageState extends State<CalcPage> {
   /// Print preview of every non-empty sheet, with the system print dialog.
   void _print() {
     try {
-      final title = widget.doc.title;
-      showPrintPreview(
-        context,
-        calcPrintJob(widget.doc.handle, title: title),
-        reorient: (landscape) => calcPrintJob(widget.doc.handle, title: title, landscape: landscape),
-      );
+      showPrintPreview(context, calcPrintJob(widget.doc.handle, title: widget.doc.title));
     } on CoreError catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
+  }
+
+  /// Paper, margin, scale, grid lines, header and footer for printing.
+  Future<void> _pageSetup() async {
+    final page = _call('calc.page') as Map<String, dynamic>?;
+    if (page == null) return;
+    final args = await showCalcPageSetup(context, page);
+    if (args == null) return;
+    _call('calc.set_page', args);
+    widget.doc.refresh();
   }
 
   Widget _colorMenu(String tip, IconData icon, String attr) {

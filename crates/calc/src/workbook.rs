@@ -197,6 +197,55 @@ enum UndoEntry {
     Cells { sheet: u32, changes: Vec<(CellAddr, Option<CellData>, Option<CellData>)> },
     Snapshot { before: Vec<Sheet>, after: Vec<Sheet> },
     Width { sheet: u32, col: u32, before: Option<f32>, after: Option<f32> },
+    Page { before: PageSetup, after: PageSetup },
+}
+
+/// How the workbook is printed (the default page style, used by every
+/// sheet). Sizes are in points.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PageSetup {
+    /// Paper width (wider than tall in landscape).
+    pub width: f32,
+    /// Paper height.
+    pub height: f32,
+    /// Margin on all sides.
+    pub margin: f32,
+    /// Scale in percent (10..=400); ignored with [`fit_width`](Self::fit_width).
+    pub scale: u16,
+    /// Shrink each sheet so its columns fit the page width.
+    pub fit_width: bool,
+    /// Print the cell grid.
+    pub grid: bool,
+    /// Print the header (sheet name) and footer (page number).
+    pub header_footer: bool,
+}
+
+impl Default for PageSetup {
+    fn default() -> Self {
+        // A4 with 2 cm margins, OpenOffice's default.
+        PageSetup {
+            width: 595.28,
+            height: 841.89,
+            margin: 56.69,
+            scale: 100,
+            fit_width: false,
+            grid: true,
+            header_footer: true,
+        }
+    }
+}
+
+impl PageSetup {
+    /// Whether the values are usable: sides 72..=14400 pt, margins leaving
+    /// a third of the shorter side, scale 10..=400 %.
+    pub fn is_valid(&self) -> bool {
+        let side = 72.0..=14_400.0;
+        side.contains(&self.width)
+            && side.contains(&self.height)
+            && self.margin.is_finite()
+            && (0.0..=self.width.min(self.height) / 3.0).contains(&self.margin)
+            && (10..=400).contains(&self.scale)
+    }
 }
 
 /// Row or column axis for structural edits.
@@ -221,6 +270,7 @@ pub struct Workbook {
     fixed_now: Option<f64>,
     utc_offset_minutes: i32,
     modified: bool,
+    page: PageSetup,
     /// Document metadata.
     pub meta: Metadata,
 }
@@ -264,6 +314,7 @@ impl Workbook {
             fixed_now: None,
             utc_offset_minutes: 0,
             modified: false,
+            page: PageSetup::default(),
             meta: Metadata::default(),
         }
     }
@@ -627,6 +678,30 @@ impl Workbook {
         Ok(())
     }
 
+    /// How the workbook is printed.
+    pub fn page(&self) -> &PageSetup {
+        &self.page
+    }
+
+    /// Changes the page setup (one undo step).
+    pub fn set_page(&mut self, page: PageSetup) -> Result<()> {
+        if !page.is_valid() {
+            return Err(bad("page size, margins or scale are out of range"));
+        }
+        if page != self.page {
+            let before = std::mem::replace(&mut self.page, page);
+            self.push_undo(UndoEntry::Page { before, after: page });
+        }
+        Ok(())
+    }
+
+    /// Sets the page setup of a freshly loaded workbook (no undo step).
+    pub(crate) fn set_loaded_page(&mut self, page: PageSetup) {
+        if page.is_valid() {
+            self.page = page;
+        }
+    }
+
     /// Copies `src` so that its top-left corner lands on `dst`. Relative
     /// references in formulas are adjusted; the destination is overwritten.
     pub fn copy_range(&mut self, src_sheet: usize, src: Range, dst_sheet: usize, dst: CellAddr) -> Result<()> {
@@ -921,6 +996,7 @@ impl Workbook {
                     };
                 }
             }
+            UndoEntry::Page { before, after } => self.page = if backwards { *before } else { *after },
         }
     }
 

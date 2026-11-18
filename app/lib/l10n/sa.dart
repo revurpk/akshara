@@ -331,4 +331,9 @@ const Map<String, String> saStrings = {
   "Page": "पृष्ठम्",
   "Print…": "मुद्रयतु…",
   "Sent to the printer.": "मुद्रकं प्रेषितम्।",
+  "Fit columns to page width": "स्तम्भान् पृष्ठविस्तारे समावेशयतु",
+  "Scale": "मापक्रमः",
+  "Print grid lines": "जालरेखाः मुद्रयतु",
+  "Header and footer": "शीर्षलेखः पादलेखश्च",
+  "Sheet name at the top, page number at the bottom": "उपरि पत्रनाम, अधः पृष्ठाङ्कः",
 };

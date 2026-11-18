@@ -331,4 +331,9 @@ const Map<String, String> taStrings = {
   "Page": "பக்கம்",
   "Print…": "அச்சிடு…",
   "Sent to the printer.": "அச்சுப்பொறிக்கு அனுப்பப்பட்டது.",
+  "Fit columns to page width": "நெடுவரிசைகளைப் பக்க அகலத்துக்குப் பொருத்து",
+  "Scale": "அளவுவிகிதம்",
+  "Print grid lines": "கட்டக் கோடுகளை அச்சிடு",
+  "Header and footer": "தலைப்பும் அடிக்குறிப்பும்",
+  "Sheet name at the top, page number at the bottom": "மேலே தாளின் பெயர், கீழே பக்க எண்",
 };

@@ -173,7 +173,8 @@ raised as usual.
 | Sort, fill down / right | toolbar (sort uses the current column) |
 | Rows and columns | insert or delete from the toolbar or the right-click menu; formulas everywhere are adjusted |
 | Sheets | + adds a sheet; right-click a sheet tab to rename or delete it |
-| Print / PDF | Ctrl+P or the printer button: every non-empty sheet, on A4 (portrait or landscape), with the sheet name at the top and page numbers at the bottom; columns that do not fit continue on the next pages. Then your system's print dialog, or *Export as PDF*. |
+| Page setup | *Page setup…* button: paper size, landscape, margin, scale (10–400 %) or *Fit columns to page width*, grid lines, and the header (sheet name) and footer (page number). Saved in the `.ods` file and used for all sheets. |
+| Print / PDF | Ctrl+P or the printer button: every non-empty sheet, laid out by the page setup; columns that do not fit continue on the next pages. Then your system's print dialog, or *Export as PDF*. |
 
 **What you type is recognised automatically:**
 
@@ -263,8 +264,9 @@ and saved again:
 - Transliteration: Hindi-style dropping of the final inherent vowel
   (`kamal` → कमल) and the nukta letters ज़/फ़ (`z`, `f`) are not part of the
   teltools scheme; type `kamala`, or add a nukta with `^n`.
-- Calc printing: print ranges, repeated title rows, and page setup
-  (always A4); cell borders are drawn as light grid lines.
+- Calc printing: print ranges, repeated title rows, page breaks, a
+  different page setup per sheet, and custom header and footer text; cell
+  borders are drawn as light grid lines.
 - All: password-protected documents (they are refused), and Microsoft
   Office formats (`.docx`, `.xlsx`).
 

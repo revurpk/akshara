@@ -236,10 +236,32 @@ void main() {
     expect(find.byType(PrintPreview), findsOneWidget);
     expect(find.text('3 page(s)'), findsOneWidget);
     expect(find.text('Second'), findsWidgets, reason: 'sheet name in the header');
-    // Landscape fits all 10 columns: one page per sheet.
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // Page setup: landscape fits all 10 columns, one page per sheet.
+    await tester.tap(find.byTooltip('Page setup…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(SwitchListTile, 'Landscape'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    var page = core({'op': 'calc.page', 'doc': doc.handle}) as Map<String, dynamic>;
+    expect((page['width'] as num) > (page['height'] as num), isTrue);
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
     await tester.pumpAndSettle();
     expect(find.text('2 page(s)'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    // Portrait again, but fit to width and without header and footer.
+    page = core({'op': 'calc.page', 'doc': doc.handle}) as Map<String, dynamic>;
+    core({'op': 'calc.set_page', 'doc': doc.handle, 'width': page['height'], 'height': page['width'], 'margin': page['margin'],
+        'fit_width': true, 'header_footer': false});
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 page(s)'), findsOneWidget);
+    expect(find.descendant(of: find.byType(PrintPreview), matching: find.text('Second')), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
   }, skip: skip != null);

@@ -6,7 +6,7 @@ exclude = ["third_party/teltools"]
 default-members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/ffi", "crates/indic"]
 
 [workspace.package]
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.85"

@@ -10,7 +10,7 @@ use crate::address::{CellAddr, MAX_COLS, MAX_ROWS};
 use crate::format::{self, format_value, NumberFormat};
 use crate::formula::parse_open_formula;
 use crate::value::Value;
-use crate::workbook::{CellStyle, Content, HAlign, Workbook};
+use crate::workbook::{CellStyle, Content, HAlign, PageSetup, Workbook};
 use office_odf::util::{format_length_in, parse_length_pt};
 use office_odf::xml::{Element, Node, XmlWriter};
 use office_odf::{ns, Limits, Metadata, OdfError, Package, Result, Rgb};
@@ -325,7 +325,8 @@ impl Loader<'_> {
 
 /// Loads a workbook from the bytes of an `.ods` file.
 pub fn load_ods(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
-    let package = Package::read_filtered(bytes, limits, |name| matches!(name, "content.xml" | "meta.xml"))?;
+    let package =
+        Package::read_filtered(bytes, limits, |name| matches!(name, "content.xml" | "styles.xml" | "meta.xml"))?;
     package.expect_mimetype(&[ns::MIME_ODS])?;
     let content = package.require_xml("content.xml", limits)?;
 
@@ -385,8 +386,52 @@ pub fn load_ods(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
     if let Some(meta) = package.get_xml("meta.xml", limits)? {
         wb.meta = Metadata::from_xml(&meta);
     }
+    if let Some(styles) = package.get_xml("styles.xml", limits)? {
+        wb.set_loaded_page(read_page_setup(&styles));
+    }
     wb.finish_loading();
     Ok(wb)
+}
+
+/// The page setup of the default master page ("Default", else the first).
+fn read_page_setup(styles: &Element) -> PageSetup {
+    let mut page = PageSetup::default();
+    let master = styles.child("office:master-styles").and_then(|m| {
+        m.children_named("style:master-page")
+            .find(|p| p.attr("style:name") == Some("Default"))
+            .or_else(|| m.children_named("style:master-page").next())
+    });
+    let Some(master) = master else { return page };
+    let shown = |name: &str| master.child(name).is_some_and(|e| e.attr("style:display") != Some("false"));
+    page.header_footer = shown("style:header") || shown("style:footer");
+    let wanted = master.attr("style:page-layout-name");
+    let Some(props) = styles
+        .child("office:automatic-styles")
+        .into_iter()
+        .flat_map(|s| s.children_named("style:page-layout"))
+        .find(|l| l.attr("style:name") == wanted)
+        .and_then(|l| l.child("style:page-layout-properties"))
+    else {
+        return page;
+    };
+    let len = |a: &str| props.attr(a).and_then(parse_length_pt).map(|v| v as f32);
+    if let (Some(w), Some(h)) = (len("fo:page-width"), len("fo:page-height")) {
+        if (72.0..=14_400.0).contains(&w) && (72.0..=14_400.0).contains(&h) {
+            page.width = w;
+            page.height = h;
+        }
+    }
+    if let Some(m) = len("fo:margin-left").filter(|m| (0.0..=page.width.min(page.height) / 3.0).contains(m)) {
+        page.margin = m;
+    }
+    // OpenOffice prints no grid unless `style:print` lists it.
+    page.grid = props.attr("style:print").is_some_and(|p| p.split_whitespace().any(|w| w == "grid"));
+    if let Some(scale) = props.attr("style:scale-to").and_then(|v| v.trim_end_matches('%').parse::<f32>().ok()) {
+        page.scale = (scale.round() as i64).clamp(10, 400) as u16;
+    }
+    let pages_across = props.attr("loext:scale-to-X").or_else(|| props.attr("style:scale-to-X"));
+    page.fit_width = pages_across.and_then(|v| v.parse::<u32>().ok()).is_some_and(|n| n >= 1);
+    page
 }
 
 // ---------------------------------------------------------------------------
@@ -695,13 +740,55 @@ fn content_xml(wb: &Workbook) -> String {
     w.finish()
 }
 
-fn styles_xml() -> String {
+fn styles_xml(wb: &Workbook) -> String {
+    let page = wb.page();
     let mut w = XmlWriter::new();
     w.start("office:document-styles")
-        .namespaces(&["office", "style", "text", "table", "fo", "number", "svg"])
+        .namespaces(&["office", "style", "text", "table", "fo", "number", "svg", "loext"])
         .attr("office:version", ns::ODF_VERSION);
     w.start("office:styles");
     w.start("style:style").attr("style:name", "Default").attr("style:family", "table-cell").end();
+    w.end();
+    w.start("office:automatic-styles");
+    w.start("style:page-layout").attr("style:name", "pm1");
+    w.start("style:page-layout-properties")
+        .attr("fo:page-width", &format_length_in(f64::from(page.width)))
+        .attr("fo:page-height", &format_length_in(f64::from(page.height)))
+        .attr("style:print-orientation", if page.width > page.height { "landscape" } else { "portrait" });
+    for side in ["top", "bottom", "left", "right"] {
+        w.attr(&format!("fo:margin-{side}"), &format_length_in(f64::from(page.margin)));
+    }
+    let mut print = String::from("objects charts drawings zero-values");
+    if page.grid {
+        print.insert_str(0, "grid ");
+    }
+    w.attr("style:print", &print);
+    if page.fit_width {
+        // Fit to one page across, any number of pages down (LibreOffice's
+        // extension; ODF 1.2 has no attribute for it).
+        w.attr("loext:scale-to-X", "1").attr("loext:scale-to-Y", "0");
+    } else {
+        w.attr("style:scale-to", &format!("{}%", page.scale));
+    }
+    w.end();
+    w.end();
+    w.end();
+    w.start("office:master-styles");
+    w.start("style:master-page").attr("style:name", "Default").attr("style:page-layout-name", "pm1");
+    // The sheet name at the top and the page number at the bottom, like
+    // OpenOffice's default page style.
+    w.start("style:header");
+    if !page.header_footer {
+        w.attr("style:display", "false");
+    }
+    w.start("text:p").start("text:sheet-name").text("???").end().end();
+    w.end();
+    w.start("style:footer");
+    if !page.header_footer {
+        w.attr("style:display", "false");
+    }
+    w.start("text:p").text("Page ").start("text:page-number").text("1").end().end();
+    w.end();
     w.finish()
 }
 
@@ -709,7 +796,7 @@ fn styles_xml() -> String {
 pub fn save_ods(wb: &Workbook) -> Result<Vec<u8>> {
     let mut package = Package::new(ns::MIME_ODS);
     package.insert("content.xml", content_xml(wb).into_bytes())?;
-    package.insert("styles.xml", styles_xml().into_bytes())?;
+    package.insert("styles.xml", styles_xml(wb).into_bytes())?;
     package.insert("meta.xml", wb.meta.to_xml().into_bytes())?;
     package.write()
 }

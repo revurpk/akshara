@@ -331,4 +331,9 @@ const Map<String, String> knStrings = {
   "Page": "ಪುಟ",
   "Print…": "ಮುದ್ರಿಸಿ…",
   "Sent to the printer.": "ಮುದ್ರಕಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ.",
+  "Fit columns to page width": "ಕಾಲಮ್‌ಗಳನ್ನು ಪುಟದ ಅಗಲಕ್ಕೆ ಹೊಂದಿಸಿ",
+  "Scale": "ಅನುಪಾತ",
+  "Print grid lines": "ಗ್ರಿಡ್ ಗೆರೆಗಳನ್ನು ಮುದ್ರಿಸಿ",
+  "Header and footer": "ಶಿರೋಲೇಖ ಮತ್ತು ಅಡಿಟಿಪ್ಪಣಿ",
+  "Sheet name at the top, page number at the bottom": "ಮೇಲೆ ಹಾಳೆಯ ಹೆಸರು, ಕೆಳಗೆ ಪುಟ ಸಂಖ್ಯೆ",
 };

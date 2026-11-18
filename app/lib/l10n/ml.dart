@@ -331,4 +331,9 @@ const Map<String, String> mlStrings = {
   "Page": "പേജ്",
   "Print…": "അച്ചടിക്കുക…",
   "Sent to the printer.": "പ്രിന്ററിലേക്ക് അയച്ചു.",
+  "Fit columns to page width": "നിരകൾ പേജ് വീതിയിൽ ഒതുക്കുക",
+  "Scale": "തോത്",
+  "Print grid lines": "ഗ്രിഡ് വരകൾ അച്ചടിക്കുക",
+  "Header and footer": "തലക്കുറിപ്പും അടിക്കുറിപ്പും",
+  "Sheet name at the top, page number at the bottom": "മുകളിൽ ഷീറ്റിന്റെ പേര്, താഴെ പേജ് നമ്പർ",
 };

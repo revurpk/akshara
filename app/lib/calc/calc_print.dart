@@ -1,8 +1,10 @@
-// What Calc prints: every non-empty sheet as a grid of its used cells.
+// What Calc prints: every non-empty sheet as a grid of its used cells, laid
+// out by the workbook's page setup (`calc.page`): paper, margin, scale or
+// fit to page width, grid lines, header (sheet name) and footer (page
+// number).
 //
 // Columns keep their widths; columns that do not fit the page width continue
-// on the following pages (top to bottom, then right, like OpenOffice). Each
-// page has the sheet name as header and the page number as footer. Cells
+// on the following pages (top to bottom, then right, like OpenOffice). Cells
 // are drawn like on screen: styles, number formats (the displayed text),
 // text spilling into empty neighbours, ### for numbers that do not fit.
 
@@ -32,7 +34,16 @@ class _Sheet {
   final Map<int, double> widths = {};
   int nRows = 0, nCols = 0;
 
-  double width(int col) => widths[col] ?? _defaultWidthPt;
+  /// Print scale of this sheet.
+  double scale = 1;
+
+  /// Whether to draw the grid.
+  bool grid = true;
+
+  double width(int col) => (widths[col] ?? _defaultWidthPt) * scale;
+  double get rowHeight => _rowHeightPt * scale;
+  double get fontSize => _fontPt * scale;
+  double get totalWidth => List<double>.generate(nCols, width).fold(0, (a, b) => a + b);
 }
 
 /// Reads the used part of every sheet from the core.
@@ -62,13 +73,20 @@ List<_Sheet> _readSheets(int doc) {
   return out;
 }
 
-/// The print job of a workbook (A4, portrait or landscape).
-PrintJob calcPrintJob(int doc, {String? title, bool landscape = false}) {
-  const margin = 56.69; // 2 cm, OpenOffice's default
-  final width = landscape ? a4Height : a4Width, height = landscape ? a4Width : a4Height;
+/// The print job of a workbook, laid out by its page setup.
+PrintJob calcPrintJob(int doc, {String? title}) {
+  final page = core({'op': 'calc.page', 'doc': doc}) as Map<String, dynamic>;
+  final width = (page['width'] as num).toDouble(), height = (page['height'] as num).toDouble();
+  final margin = (page['margin'] as num).toDouble();
   final body = width - 2 * margin;
+  final fit = page['fit_width'] == true;
+  final scale = (page['scale'] as num).toDouble() / 100;
   final units = <PrintUnit>[];
   for (final sheet in _readSheets(doc)) {
+    sheet.grid = page['grid'] == true;
+    // Fit to width only ever shrinks.
+    final natural = sheet.totalWidth;
+    sheet.scale = fit ? (natural > body ? body / natural : 1.0) : scale;
     // Column bands that fit the page width.
     final bands = <List<int>>[[]];
     var used = 0.0;
@@ -96,14 +114,15 @@ PrintJob calcPrintJob(int doc, {String? title, bool landscape = false}) {
     }
   }
   const grey = TextStyle(fontFamily: uiFont, fontFamilyFallback: indicFallback, fontSize: 9, color: Color(0xFF555555));
+  final headerFooter = page['header_footer'] == true;
   return PrintJob(
     width: width,
     height: height,
     margin: margin,
     units: units,
-    header: (page, pages, section) => Text(section ?? '', textAlign: TextAlign.center, style: grey),
-    footer: (page, pages, section) => Text('$page / $pages', textAlign: TextAlign.center, style: grey),
-    paper: 'a4',
+    header: headerFooter ? (n, pages, section) => Text(section ?? '', textAlign: TextAlign.center, style: grey) : null,
+    footer: headerFooter ? (n, pages, section) => Text('$n / $pages', textAlign: TextAlign.center, style: grey) : null,
+    paper: page['paper'] as String?,
     title: title,
   );
 }
@@ -127,7 +146,7 @@ class _RowView extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: SizedBox(
         width: w + spill,
-        height: _rowHeightPt,
+        height: sheet.rowHeight,
         child: CustomPaint(painter: _RowPainter(sheet, row, cols, topLine)),
       ),
     );
@@ -172,7 +191,7 @@ class _RowPainter extends CustomPainter {
           style: TextStyle(
             fontFamily: uiFont,
             fontFamilyFallback: indicFallback,
-            fontSize: _fontPt,
+            fontSize: sheet.fontSize,
             color: _color(style?['color']) ?? const Color(0xFF000000),
             fontWeight: style?['bold'] == true ? FontWeight.bold : null,
             fontStyle: style?['italic'] == true ? FontStyle.italic : null,
@@ -200,7 +219,7 @@ class _RowPainter extends CustomPainter {
       final y = (size.height - tp.height) / 2;
       if (type == 'n' && tp.width > right - left - 3) {
         final hashes = TextPainter(
-          text: const TextSpan(text: '###', style: TextStyle(fontSize: _fontPt, color: Color(0xFF000000))),
+          text: TextSpan(text: '###', style: TextStyle(fontSize: sheet.fontSize, color: const Color(0xFF000000))),
           textDirection: TextDirection.ltr,
         )..layout();
         hashes.paint(canvas, Offset(right - hashes.width - 2, y));
@@ -214,6 +233,7 @@ class _RowPainter extends CustomPainter {
       }
       canvas.restore();
     }
+    if (!sheet.grid) return;
     final grid = Paint()
       ..color = const Color(0xFFBBBBBB)
       ..strokeWidth = 0.5;

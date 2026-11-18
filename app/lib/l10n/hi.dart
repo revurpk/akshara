@@ -331,4 +331,9 @@ const Map<String, String> hiStrings = {
   "Page": "पृष्ठ",
   "Print…": "मुद्रित करें…",
   "Sent to the printer.": "मुद्रक को भेजा गया।",
+  "Fit columns to page width": "स्तंभों को पृष्ठ की चौड़ाई में फ़िट करें",
+  "Scale": "पैमाना",
+  "Print grid lines": "ग्रिड रेखाएँ मुद्रित करें",
+  "Header and footer": "शीर्षलेख और पादलेख",
+  "Sheet name at the top, page number at the bottom": "ऊपर शीट का नाम, नीचे पृष्ठ संख्या",
 };

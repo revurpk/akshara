@@ -331,4 +331,9 @@ const Map<String, String> orStrings = {
   "Page": "ପୃଷ୍ଠା",
   "Print…": "ମୁଦ୍ରଣ କରନ୍ତୁ…",
   "Sent to the printer.": "ପ୍ରିଣ୍ଟରକୁ ପଠାଗଲା।",
+  "Fit columns to page width": "ସ୍ତମ୍ଭଗୁଡ଼ିକୁ ପୃଷ୍ଠା ପ୍ରସ୍ଥରେ ଫିଟ କରନ୍ତୁ",
+  "Scale": "ମାପ",
+  "Print grid lines": "ଗ୍ରିଡ ରେଖା ମୁଦ୍ରଣ କରନ୍ତୁ",
+  "Header and footer": "ଶୀର୍ଷଲେଖ ଓ ପାଦଲେଖ",
+  "Sheet name at the top, page number at the bottom": "ଉପରେ ସିଟ ନାମ, ତଳେ ପୃଷ୍ଠା ସଂଖ୍ୟା",
 };

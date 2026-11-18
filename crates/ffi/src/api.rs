@@ -6,6 +6,7 @@
 //! See `docs/ffi-protocol.md` for the full list of operations.
 
 use office_calc::{self as calc, Axis, CellAddr, HAlign, NumberFormat, Range, StylePatch, Workbook};
+use office_calc::PageSetup as CalcPage;
 use office_indic::Script;
 use office_math::Formula;
 use office_odf::{read_file_limited, write_file_atomic, Limits, OdfError, Rgb};
@@ -689,6 +690,32 @@ impl Registry {
                 Ok(Value::Null)
             }
             "calc.functions" => Ok(json!(calc::eval::FUNCTION_NAMES)),
+            "calc.page" => {
+                let p = *self.calc(&a)?.page();
+                Ok(json!({
+                    "width": p.width, "height": p.height, "margin": p.margin, "scale": p.scale,
+                    "fit_width": p.fit_width, "grid": p.grid, "header_footer": p.header_footer,
+                    "paper": writer::PageSetup { width: p.width, height: p.height, margin: p.margin }.paper().map(|x| x.id),
+                }))
+            }
+            "calc.set_page" => {
+                let current = *self.calc(&a)?.page();
+                let scale = match a.0.get("scale") {
+                    Some(v) => v.as_u64().and_then(|s| u16::try_from(s).ok()).ok_or_else(|| bad("'scale' must be a percentage"))?,
+                    None => current.scale,
+                };
+                let page = CalcPage {
+                    width: f32_arg(&a, "width")?,
+                    height: f32_arg(&a, "height")?,
+                    margin: f32_arg(&a, "margin")?,
+                    scale,
+                    fit_width: a.opt_bool("fit_width").unwrap_or(current.fit_width),
+                    grid: a.opt_bool("grid").unwrap_or(current.grid),
+                    header_footer: a.opt_bool("header_footer").unwrap_or(current.header_footer),
+                };
+                self.calc(&a)?.set_page(page)?;
+                Ok(Value::Null)
+            }
 
             // ---- writer ----
             "writer.get" => {
