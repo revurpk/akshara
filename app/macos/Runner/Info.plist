@@ -28,5 +28,9 @@
 	<string>MainMenu</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<!-- Run Dart on the main thread, so the print panel (Cocoa) can be
+	     used through dart:ffi. -->
+	<key>FLTEnableMergedPlatformUIThread</key>
+	<true/>
 </dict>
 </plist>

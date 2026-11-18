@@ -4,10 +4,11 @@
 // editor: blocks are measured off stage, distributed over pages (tables
 // split between rows), and each page is rasterised at print resolution.
 // Printing uses the operating system's print dialog (system_print.dart):
-// on Windows the pages are drawn straight to the printer, on Linux the core
-// wraps the page images into a PDF for GTK's print job. macOS (and Linux
-// without GTK) send the PDF to `lp` with the printer chosen here, or open
-// it in the PDF viewer. No plugins, no network.
+// on Windows the pages are drawn straight to the printer; on Linux and
+// macOS the core wraps the page images into a PDF for GTK's print job or
+// the macOS print panel. Where no system dialog is available the PDF goes
+// to `lp` with the printer chosen here, or opens in the PDF viewer. No
+// plugins, no network.
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -142,8 +143,10 @@ class _PrintPreviewState extends State<PrintPreview> {
   int _copies = 1;
   bool _busy = false;
 
-  /// The system print dialog: Windows always, Linux when GTK provides it.
-  late final bool _systemDialog = !widget.pdfOnly && (Platform.isWindows || (Platform.isLinux && gtkPrintAvailable));
+  /// The system print dialog: Windows always, Linux when GTK provides it,
+  /// macOS when Dart runs on the main thread.
+  late final bool _systemDialog = !widget.pdfOnly &&
+      (Platform.isWindows || (Platform.isLinux && gtkPrintAvailable) || (Platform.isMacOS && macPrintAvailable));
 
   /// Fallback: the printer is chosen here and the PDF goes to `lp`.
   bool get _canSpool => !widget.pdfOnly && !_systemDialog && (Platform.isLinux || Platform.isMacOS) && _printers.isNotEmpty;
@@ -320,7 +323,9 @@ class _PrintPreviewState extends State<PrintPreview> {
         final pdf = '${dir.path}${Platform.pathSeparator}${_safeName(widget.source.title ?? 'document')}.pdf';
         await _writePdf(pdf);
         if (_systemDialog) {
-          final result = await printGtk(title: title, pdfPath: pdf, widthPt: src.width, heightPt: src.height, paper: src.paper);
+          final result = Platform.isMacOS
+              ? printMac(title: title, pdfPath: pdf, widthPt: src.width, heightPt: src.height)
+              : await printGtk(title: title, pdfPath: pdf, widthPt: src.width, heightPt: src.height, paper: src.paper);
           if (result == SystemPrintResult.printed) {
             messenger?.showSnackBar(SnackBar(content: Text(t('Sent to the printer.'))));
             navigator.pop();

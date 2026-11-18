@@ -8,6 +8,12 @@
 //   chosen printer as a GtkPrintJob, which applies copies, page ranges and
 //   the other options. This needs the UI isolate on the GTK thread
 //   (FL_UI_THREAD_POLICY_RUN_ON_PLATFORM_THREAD in linux/runner).
+// * macOS: the standard print panel (NSPrintOperation for the PDF, through
+//   PDFKit and the Objective-C runtime). Cocoa must be used from the main
+//   thread: Info.plist asks Flutter to run Dart there
+//   (FLTEnableMergedPlatformUIThread), and [macPrintAvailable] checks it.
+//   Printing from the sandbox needs the com.apple.security.print
+//   entitlement.
 //
 // Other platforms use the fallback in print_preview.dart.
 
@@ -508,4 +514,133 @@ Future<SystemPrintResult> printGtk({
   gtk.free(signal);
   gtk.widgetShow(dialog);
   return done.future;
+}
+
+// ---------------------------------------------------------------------------
+// macOS (Cocoa, PDFKit)
+// ---------------------------------------------------------------------------
+
+final class _NSSize extends Struct {
+  @Double()
+  external double width;
+  @Double()
+  external double height;
+}
+
+typedef _Id = Pointer<Void>;
+
+class _Objc {
+  _Objc()
+      : _objc = DynamicLibrary.open('/usr/lib/libobjc.A.dylib'),
+        _system = DynamicLibrary.process() {
+    // Load the frameworks whose classes are used.
+    DynamicLibrary.open('/System/Library/Frameworks/AppKit.framework/AppKit');
+    DynamicLibrary.open('/System/Library/Frameworks/PDFKit.framework/PDFKit');
+  }
+
+  final DynamicLibrary _objc, _system;
+
+  late final getClass = _objc.lookupFunction<_Id Function(Pointer<Uint8>), _Id Function(Pointer<Uint8>)>('objc_getClass');
+  late final selector = _objc.lookupFunction<_Id Function(Pointer<Uint8>), _Id Function(Pointer<Uint8>)>('sel_registerName');
+  late final isMainThread = _system.lookupFunction<Int32 Function(), int Function()>('pthread_main_np');
+  late final malloc = _system.lookupFunction<Pointer<Uint8> Function(IntPtr), Pointer<Uint8> Function(int)>('malloc');
+  late final free = _system.lookupFunction<Void Function(Pointer<Uint8>), void Function(Pointer<Uint8>)>('free');
+
+  // objc_msgSend, cast to each signature used (never variadic).
+  late final send0 = _objc.lookupFunction<_Id Function(_Id, _Id), _Id Function(_Id, _Id)>('objc_msgSend');
+  late final sendP = _objc.lookupFunction<_Id Function(_Id, _Id, Pointer<Void>), _Id Function(_Id, _Id, Pointer<Void>)>('objc_msgSend');
+  late final sendL = _objc.lookupFunction<Void Function(_Id, _Id, Long), void Function(_Id, _Id, int)>('objc_msgSend');
+  late final sendB = _objc.lookupFunction<Void Function(_Id, _Id, Int8), void Function(_Id, _Id, int)>('objc_msgSend');
+  late final sendD = _objc.lookupFunction<Void Function(_Id, _Id, Double), void Function(_Id, _Id, double)>('objc_msgSend');
+  late final sendSize = _objc.lookupFunction<Void Function(_Id, _Id, _NSSize), void Function(_Id, _Id, _NSSize)>('objc_msgSend');
+  late final sendRetB = _objc.lookupFunction<Int8 Function(_Id, _Id), int Function(_Id, _Id)>('objc_msgSend');
+  late final sendPrintOp = _objc.lookupFunction<_Id Function(_Id, _Id, _Id, Long, Int8), _Id Function(_Id, _Id, _Id, int, int)>('objc_msgSend');
+
+  Pointer<Uint8> cString(String s) {
+    final bytes = const Utf8Encoder().convert(s);
+    final p = malloc(bytes.length + 1);
+    p.asTypedList(bytes.length + 1)
+      ..setAll(0, bytes)
+      ..[bytes.length] = 0;
+    return p;
+  }
+
+  _Id cls(String name) {
+    final n = cString(name);
+    try {
+      return getClass(n);
+    } finally {
+      free(n);
+    }
+  }
+
+  _Id sel(String name) {
+    final n = cString(name);
+    try {
+      return selector(n);
+    } finally {
+      free(n);
+    }
+  }
+
+  /// An autoreleased NSString.
+  _Id string(String s) {
+    final c = cString(s);
+    try {
+      return sendP(cls('NSString'), sel('stringWithUTF8String:'), c.cast());
+    } finally {
+      free(c);
+    }
+  }
+}
+
+_Objc? _openObjc() {
+  if (!Platform.isMacOS) return null;
+  try {
+    final objc = _Objc();
+    if (objc.isMainThread() == 0) return null; // Cocoa needs the main thread
+    if (objc.cls('PDFDocument') == nullptr || objc.cls('NSPrintInfo') == nullptr) return null;
+    return objc;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Whether the macOS print panel can be used (Dart on the main thread).
+bool get macPrintAvailable => _openObjc() != null;
+
+/// Shows the macOS print panel for [pdfPath] (actual size, the document's
+/// paper size and orientation preselected).
+SystemPrintResult printMac({
+  required String title,
+  required String pdfPath,
+  required double widthPt,
+  required double heightPt,
+}) {
+  final o = _openObjc();
+  if (o == null) throw SystemPrintError('The macOS print panel is not available.');
+  final url = o.sendP(o.cls('NSURL'), o.sel('fileURLWithPath:'), o.string(pdfPath));
+  final pdf = o.sendP(o.send0(o.cls('PDFDocument'), o.sel('alloc')), o.sel('initWithURL:'), url);
+  if (pdf == nullptr) throw SystemPrintError('The printer does not accept the document.');
+  final info = o.send0(o.send0(o.cls('NSPrintInfo'), o.sel('sharedPrintInfo')), o.sel('copy'));
+  try {
+    final size = Struct.create<_NSSize>()
+      ..width = widthPt < heightPt ? widthPt : heightPt
+      ..height = widthPt < heightPt ? heightPt : widthPt;
+    o.sendSize(info, o.sel('setPaperSize:'), size);
+    o.sendL(info, o.sel('setOrientation:'), widthPt > heightPt ? 1 : 0); // NSPaperOrientationLandscape
+    for (final side in ['setTopMargin:', 'setBottomMargin:', 'setLeftMargin:', 'setRightMargin:']) {
+      o.sendD(info, o.sel(side), 0);
+    }
+    // kPDFPrintPageScaleNone: actual size, so labels line up.
+    final op = o.sendPrintOp(pdf, o.sel('printOperationForPrintInfo:scalingMode:autoRotate:'), info, 0, 1);
+    if (op == nullptr) throw SystemPrintError('The print panel could not be opened.');
+    o.sendP(op, o.sel('setJobTitle:'), o.string(title));
+    o.sendB(op, o.sel('setShowsPrintPanel:'), 1);
+    o.sendB(op, o.sel('setShowsProgressPanel:'), 1);
+    return o.sendRetB(op, o.sel('runOperation')) != 0 ? SystemPrintResult.printed : SystemPrintResult.cancelled;
+  } finally {
+    o.send0(info, o.sel('release'));
+    o.send0(pdf, o.sel('release'));
+  }
 }

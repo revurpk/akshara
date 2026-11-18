@@ -144,9 +144,8 @@ exactly as on screen. *Print…* in the preview opens your system's print
 dialog, with its printers, copies, page range and printer preferences;
 the document's paper size and orientation are preselected. On Windows the
 pages go straight to the printer at its resolution (up to 300 dpi); on
-Linux GTK's print dialog sends a 200 dpi PDF to the chosen printer. On
-macOS you pick the printer and copies in the preview and the PDF goes to
-the print queue (`lp`). Phones and tablets offer PDF export. Pages break only at page
+Linux (GTK's print dialog) and macOS (the standard print panel) a 200 dpi
+PDF goes to the chosen printer. Phones and tablets offer PDF export. Pages break only at page
 breaks and where the text no longer fits, between paragraphs and table
 rows; a single paragraph taller than a page is cut off. Label sheets print
 at the exact label positions: check "actual size" (no scaling) in the
