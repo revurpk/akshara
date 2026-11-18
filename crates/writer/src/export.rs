@@ -121,12 +121,20 @@ fn html_runs(p: &Paragraph) -> String {
 }
 
 fn html_paragraph(p: &Paragraph) -> String {
-    let style = match p.align {
-        Align::Left => String::new(),
-        Align::Center => " style=\"text-align:center\"".into(),
-        Align::Right => " style=\"text-align:right\"".into(),
-        Align::Justify => " style=\"text-align:justify\"".into(),
-    };
+    let mut css = Vec::new();
+    match p.align {
+        Align::Left => {}
+        Align::Center => css.push("text-align:center".to_owned()),
+        Align::Right => css.push("text-align:right".to_owned()),
+        Align::Justify => css.push("text-align:justify".to_owned()),
+    }
+    if p.indent > 0.0 {
+        css.push(format!("margin-left:{}pt", p.indent));
+    }
+    if p.space_before > 0.0 {
+        css.push(format!("margin-top:{}pt", p.space_before));
+    }
+    let style = if css.is_empty() { String::new() } else { format!(" style=\"{}\"", css.join(";")) };
     let body = html_runs(p);
     match p.kind {
         ParaKind::Heading { level } => format!("<h{level}{style}>{body}</h{level}>"),
@@ -192,9 +200,15 @@ pub fn to_html(doc: &Document) -> String {
          <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">\n\
          <title>{}</title>\n<style>body{{font-family:serif;max-width:48em;margin:2em auto;line-height:1.4}}\
          table{{border-collapse:collapse}}td{{border:1px solid #999;padding:4px 8px;vertical-align:top}}\
-         .title{{text-align:center}}</style>\n</head>\n<body>\n",
+         .title{{text-align:center}}table.plain td{{border:none}}\
+         header,footer{{color:#555;font-size:90%}}footer{{margin-top:2em}}</style>\n</head>\n<body>\n",
         escape(&title)
     );
+    if !doc.header().is_empty() {
+        out.push_str("<header>\n");
+        html_paragraphs(doc.header(), &mut out);
+        out.push_str("</header>\n");
+    }
     let mut pending: Vec<Paragraph> = Vec::new();
     for block in doc.blocks() {
         match block {
@@ -204,11 +218,17 @@ pub fn to_html(doc: &Document) -> String {
                 pending.clear();
                 match other {
                     Block::Table(t) => {
-                        out.push_str("<table>\n");
-                        for row in &t.rows {
-                            out.push_str("<tr>");
-                            for cell in row {
-                                out.push_str("<td>");
+                        out.push_str(if t.borders { "<table>\n" } else { "<table class=\"plain\">\n" });
+                        for (r, row) in t.rows.iter().enumerate() {
+                            match t.row_heights.get(r) {
+                                Some(h) => out.push_str(&format!("<tr style=\"height:{h}pt\">")),
+                                None => out.push_str("<tr>"),
+                            }
+                            for (c, cell) in row.iter().enumerate() {
+                                match t.col_widths.get(c) {
+                                    Some(w) => out.push_str(&format!("<td style=\"width:{w}pt\">")),
+                                    None => out.push_str("<td>"),
+                                }
                                 html_paragraphs(cell, &mut out);
                                 out.push_str("</td>");
                             }
@@ -222,6 +242,11 @@ pub fn to_html(doc: &Document) -> String {
         }
     }
     html_paragraphs(&pending, &mut out);
+    if !doc.footer().is_empty() {
+        out.push_str("<footer>\n");
+        html_paragraphs(doc.footer(), &mut out);
+        out.push_str("</footer>\n");
+    }
     out.push_str("</body>\n</html>\n");
     out
 }
@@ -380,7 +405,7 @@ mod tests {
             Block::Paragraph(bold),
             Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "one")),
             Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "two")),
-            Block::Table(Table { rows: vec![vec![vec![Paragraph::plain("h")]], vec![vec![Paragraph::plain("v")]]] }),
+            Block::Table(Table::from_rows(vec![vec![vec![Paragraph::plain("h")]], vec![vec![Paragraph::plain("v")]]])),
         ]);
         assert_eq!(
             to_markdown(&doc),

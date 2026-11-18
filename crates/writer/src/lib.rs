@@ -3,11 +3,16 @@
 //! The core of Akshara Writer, a word processor compatible with OpenOffice
 //! Writer.
 //!
-//! * [`model`]: paragraphs of attributed runs, lists, tables, page breaks;
+//! * [`model`]: paragraphs of attributed runs, lists, tables, page breaks,
+//!   page setup, page header and footer, page number fields;
 //! * [`Document`]: validated editing operations addressed in UTF-16 offsets,
 //!   with coalescing undo/redo, find and replace;
 //! * [`load_odt`] / [`save_odt`]: OpenDocument Text import and export;
-//! * [`export`]: plain text import, and text, HTML and Markdown export.
+//! * [`export`]: plain text import, and text, HTML and Markdown export;
+//! * [`pdf`]: PDF output from page images, for printing;
+//! * builders for envelopes, index cards, label sheets and letterheads
+//!   ([`Document::envelope`], [`Document::index_cards`], [`Document::labels`],
+//!   [`Document::set_letterhead`]).
 //!
 //! The crate contains no `unsafe` code.
 //!
@@ -29,10 +34,12 @@ mod document;
 pub mod export;
 pub mod model;
 mod odt;
+pub mod pdf;
 
-pub use document::{Document, Match, ParaRef, MAX_BLOCKS, MAX_PARAGRAPH_LEN, MAX_UNDO};
+pub use document::{Area, Document, Match, ParaRef, INDENT_STEP, MAX_BLOCKS, MAX_LABELS, MAX_PARAGRAPH_LEN, MAX_UNDO};
 pub use model::{
-    sanitize_link, Align, AttrPatch, Block, PageSetup, ParaKind, Paragraph, Run, Stats, Table, TextAttrs,
+    label_sheet, paper_size, sanitize_link, Align, AttrPatch, Block, Field, LabelSheet, Letterhead, PageSetup, PaperKind,
+    PaperSize, ParaKind, Paragraph, Run, Stats, Table, TextAttrs, LABEL_SHEETS, PAPER_SIZES,
 };
 pub use odt::{load_odt, save_odt};
 

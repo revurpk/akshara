@@ -202,7 +202,16 @@ fn stats_and_plain_text() {
 fn rich_document() -> Document {
     let mut doc = Document::new();
     doc.meta.title = Some("Rich".into());
-    doc.page = PageSetup { width: 612.0, height: 792.0, margin: 72.0 };
+    doc.set_page(PageSetup { width: 612.0, height: 792.0, margin: 72.0 }).expect("page");
+    doc.set_header(true).expect("header");
+    doc.set_text(ParaRef::header(0), "Report, page ").expect("header text");
+    doc.insert_field(ParaRef::header(0), 13, Field::PageNumber).expect("field");
+    doc.set_text(ParaRef::header(0), "Report, page 1 of ").expect("typing after a field");
+    doc.insert_field(ParaRef::header(0), 18, Field::PageCount).expect("field");
+    doc.set_align(ParaRef::header(0), Align::Right).expect("align");
+    doc.set_footer(true).expect("footer");
+    doc.set_text(ParaRef::footer(0), "Confidential").expect("footer text");
+    doc.apply_attrs(ParaRef::footer(0), 0, 12, &bold()).expect("bold footer");
     let mut fancy = Paragraph::plain("");
     fancy.align = Align::Justify;
     fancy.runs = vec![
@@ -234,6 +243,7 @@ fn rich_document() -> Document {
         Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "two")),
         Block::Paragraph(Paragraph::with_kind(ParaKind::Quote, "A quotation")),
         Block::Paragraph(Paragraph::with_kind(ParaKind::Code, "fn main() {    }")),
+        Block::Paragraph(Paragraph { indent: 72.0, space_before: 18.0, ..Paragraph::plain("indented") }),
         Block::PageBreak,
         Block::Paragraph(Paragraph::with_kind(ParaKind::Heading { level: 3 }, "After the break")),
     ];
@@ -241,6 +251,11 @@ fn rich_document() -> Document {
     table.rows[0][0] = vec![Paragraph::plain("r0c0")];
     table.rows[1][1] = vec![Paragraph::plain("multi"), Paragraph::with_kind(ParaKind::Bullet { level: 0 }, "item")];
     blocks.push(Block::Table(table));
+    let mut grid = Table::from_rows(vec![vec![vec![Paragraph::plain("label")], vec![Paragraph::plain("")]]; 2]);
+    grid.col_widths = vec![180.0, 9.0];
+    grid.row_heights = vec![72.0, 72.0];
+    grid.borders = false;
+    blocks.push(Block::Table(grid));
     blocks.push(Block::Paragraph(Paragraph::plain("")));
     for block in blocks.into_iter().rev() {
         doc.insert_block(0, block).expect("insert");
@@ -259,7 +274,11 @@ fn odt_round_trip_preserves_the_model() {
     }
     assert_eq!(back.blocks().len(), doc.blocks().len());
     assert_eq!(back.meta.title.as_deref(), Some("Rich"));
-    assert!((back.page.width - 612.0).abs() < 0.1 && (back.page.margin - 72.0).abs() < 0.1);
+    assert!((back.page().width - 612.0).abs() < 0.1 && (back.page().margin - 72.0).abs() < 0.1);
+    assert_eq!(back.header(), doc.header());
+    assert_eq!(back.footer(), doc.footer());
+    let fields: Vec<_> = back.header()[0].runs.iter().filter_map(|r| r.attrs.field).collect();
+    assert_eq!(fields, [Field::PageNumber, Field::PageCount]);
     assert_eq!(save_odt(&back).expect("save again"), bytes, "stable output");
     assert!(!back.is_modified() && !back.can_undo());
     assert_eq!(load(&bytes, &Limits::default()).expect("generic").blocks(), doc.blocks());
@@ -406,7 +425,7 @@ fn para_strategy() -> impl Strategy<Value = Paragraph> {
     ];
     let align = prop::sample::select(vec![Align::Left, Align::Center, Align::Right, Align::Justify]);
     (kind, align, prop::collection::vec(run, 0..5)).prop_map(|(kind, align, runs)| {
-        let mut p = Paragraph { kind, align, runs };
+        let mut p = Paragraph { kind, align, runs, ..Default::default() };
         p.normalize();
         p
     })
@@ -484,3 +503,203 @@ proptest! {
         let _ = export::to_markdown(&doc);
     }
 }
+
+// ---- headers, footers, fields, page setup ----------------------------------------
+
+#[test]
+fn header_and_footer_edit_like_the_body_and_undo_together() {
+    let mut doc = Document::new();
+    assert!(doc.header().is_empty() && doc.paragraph(ParaRef::header(0)).is_err());
+    doc.set_header(true).expect("on");
+    doc.set_text(ParaRef::header(0), "Top line").expect("type");
+    let second = doc.split_paragraph(ParaRef::header(0), 3).expect("split");
+    assert_eq!(second, ParaRef::header(1));
+    assert_eq!(doc.header().iter().map(Paragraph::text).collect::<Vec<_>>(), ["Top", " line"]);
+    assert_eq!(doc.merge_with_previous(second).expect("merge"), Some((ParaRef::header(0), 3)));
+    assert_eq!(doc.merge_with_previous(ParaRef::header(0)).expect("nothing before"), None);
+    // Headers have no tables, and are searched but not counted.
+    assert!(doc.paragraph(ParaRef { cell: Some((0, 0, 0)), ..ParaRef::header(0) }).is_err());
+    assert_eq!(doc.find("line", true, 10).first().map(|m| m.para), Some(ParaRef::header(0)));
+    assert_eq!(doc.stats().words, 0);
+    assert_eq!(doc.replace_all("Top", "Head", true).expect("replace"), 1);
+    assert_eq!(doc.header()[0].text(), "Head line");
+    // Turning it off drops the content; undo brings it back.
+    doc.set_header(false).expect("off");
+    assert!(doc.header().is_empty());
+    assert!(doc.undo());
+    assert_eq!(doc.header()[0].text(), "Head line");
+}
+
+#[test]
+fn fields_are_single_runs_and_typing_next_to_them_is_plain() {
+    let mut doc = Document::new();
+    doc.set_text(P0, "Page ").expect("type");
+    doc.insert_field(P0, 5, Field::PageNumber).expect("field");
+    doc.insert_field(P0, 6, Field::PageNumber).expect("second field");
+    let p = doc.paragraph(P0).expect("p");
+    assert_eq!(p.runs.len(), 3, "adjacent fields are not merged");
+    doc.set_text(P0, "Page 11 x").expect("type after");
+    let p = doc.paragraph(P0).expect("p");
+    assert_eq!(p.runs.last().map(|r| (r.text.as_str(), r.attrs.field)), Some((" x", None)));
+    doc.insert_block(1, Block::PageBreak).expect("break");
+    doc.insert_field(P0, 0, Field::PageCount).expect("count");
+    assert_eq!(doc.paragraph(P0).expect("p").runs[0].text, "2");
+    assert!(doc.insert_field(P0, 99, Field::PageCount).is_err());
+}
+
+#[test]
+fn page_setup_is_validated_and_undoable() {
+    let mut doc = Document::new();
+    let card = paper_size("card_3x5").expect("card");
+    doc.set_page(PageSetup { width: card.width, height: card.height, margin: 18.0 }).expect("card");
+    assert_eq!(doc.page().paper().map(|p| p.id), Some("card_3x5"));
+    assert!(doc.page().is_landscape());
+    assert!(doc.set_page(PageSetup { width: 10.0, height: 800.0, margin: 0.0 }).is_err());
+    assert!(doc.set_page(PageSetup { width: 300.0, height: 300.0, margin: 150.0 }).is_err());
+    assert!(doc.set_page(PageSetup { width: f32::NAN, height: 300.0, margin: 1.0 }).is_err());
+    assert!(doc.undo());
+    assert_eq!(*doc.page(), PageSetup::default());
+    for p in PAPER_SIZES {
+        assert!(PageSetup { width: p.width, height: p.height, margin: 18.0 }.is_valid(), "{}", p.id);
+        assert_eq!(p.kind != PaperKind::Sheet, p.width > p.height, "{} orientation", p.id);
+    }
+}
+
+#[test]
+fn indent_moves_body_paragraphs_in_steps() {
+    let mut doc = Document::new();
+    doc.indent(P0, 2).expect("indent");
+    assert_eq!(doc.paragraph(P0).expect("p").indent, 2.0 * INDENT_STEP);
+    doc.indent(P0, -5).expect("outdent");
+    assert_eq!(doc.paragraph(P0).expect("p").indent, 0.0);
+    doc.set_spacing(P0, 10_000.0, 12.0).expect("spacing");
+    let p = doc.paragraph(P0).expect("p");
+    assert_eq!((p.indent, p.space_before), (720.0, 12.0));
+    assert!(doc.set_spacing(P0, f32::INFINITY, 0.0).is_err());
+    // A new paragraph keeps the indent but not the space above.
+    let next = doc.split_paragraph(P0, 0).expect("split");
+    let p = doc.paragraph(next).expect("p");
+    assert_eq!((p.indent, p.space_before), (720.0, 0.0));
+}
+
+// ---- envelopes, index cards, labels, letterheads ---------------------------------
+
+#[test]
+fn envelope_places_sender_and_recipient() {
+    let dl = paper_size("env_dl").expect("dl");
+    let page = PageSetup { width: dl.width, height: dl.height, margin: 28.8 };
+    let doc = Document::envelope(page, "A. Sender\n1 Lane\n\n", "B. Recipient\r\n22 Road\nCity 500001\n");
+    assert_eq!(*doc.page(), page);
+    let paras: Vec<&Paragraph> = doc
+        .blocks()
+        .iter()
+        .filter_map(|b| match b {
+            Block::Paragraph(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    let texts: Vec<String> = paras.iter().map(|p| p.text()).collect();
+    assert_eq!(texts, ["A. Sender", "1 Lane", "B. Recipient", "22 Road", "City 500001"]);
+    assert_eq!(paras[0].indent, 0.0);
+    assert!(paras[2].indent > page.width * 0.3 && paras[2].space_before > 20.0);
+    assert!(paras[3].indent == paras[2].indent && paras[3].space_before == 0.0);
+    // Survives a save and reload.
+    let back = load_odt(&save_odt(&doc).expect("save"), &Limits::default()).expect("load");
+    assert_eq!(back.blocks(), doc.blocks());
+    // An invalid size falls back to DL.
+    let fallback = Document::envelope(PageSetup { width: 0.0, height: 0.0, margin: 0.0 }, "", "X");
+    assert_eq!(fallback.page().paper().map(|p| p.id), Some("env_dl"));
+}
+
+#[test]
+fn index_cards_are_one_per_page() {
+    let card = paper_size("card_5x8").expect("card");
+    let doc = Document::index_cards(PageSetup { width: card.width, height: card.height, margin: 18.0 }, 3);
+    assert_eq!(doc.page_count(), 3);
+    assert!(matches!(&doc.blocks()[0], Block::Paragraph(p) if p.kind == ParaKind::Heading { level: 2 }));
+    assert_eq!(Document::index_cards(PageSetup::default(), 0).page_count(), 1);
+}
+
+#[test]
+fn label_sheets_fit_and_lay_out_exactly() {
+    for sheet in LABEL_SHEETS {
+        assert!(sheet.is_valid(), "{}", sheet.id);
+    }
+    let sheet = label_sheet("l7160").expect("l7160");
+    let doc = Document::labels(sheet, "Name\nStreet\nTown", true).expect("labels");
+    let Block::Table(t) = &doc.blocks()[0] else { panic!("expected a table") };
+    assert!(!t.borders);
+    // Spacer column for the left offset, 3 labels with 2 gaps.
+    assert_eq!(t.col_widths.len(), t.cols());
+    assert_eq!(t.row_heights.len(), t.rows.len());
+    let left: f32 = doc.page().margin + t.col_widths.iter().sum::<f32>();
+    assert!((left - (sheet.left + 2.0 * sheet.h_pitch + sheet.width)).abs() < 0.5);
+    let filled = t.rows.iter().flatten().filter(|cell| cell[0].text() == "Name").count();
+    assert_eq!(filled, 21);
+    // A list of records fills as many sheets as needed.
+    let list: String = (0..30).map(|i| format!("Person {i}\nAddress {i}\n\n")).collect();
+    let doc = Document::labels(sheet, &list, false).expect("list");
+    assert_eq!(doc.page_count(), 2);
+    let back = load_odt(&save_odt(&doc).expect("save"), &Limits::default()).expect("load");
+    assert_eq!(back.blocks(), doc.blocks());
+    // Inserting a column keeps the widths consistent.
+    let mut doc = back;
+    doc.resize_table(0, false, 1, 1).expect("insert column");
+    let Block::Table(t) = &doc.blocks()[0] else { panic!("table") };
+    assert_eq!(t.col_widths.len(), t.cols());
+    let bad = LabelSheet { cols: 9, ..*sheet };
+    assert!(Document::labels(&bad, "x", true).is_err());
+}
+
+#[test]
+fn letterhead_fills_header_and_footer() {
+    let mut doc = Document::new();
+    let head = Letterhead {
+        name: "Akshara Trust".into(),
+        details: "12 Temple Street\nMysuru".into(),
+        contact: "+91 0000 · info@example.org".into(),
+        align: Align::Center,
+        color: Some(Rgb(0x1f, 0x5f, 0xbf)),
+    };
+    doc.set_letterhead(&head).expect("letterhead");
+    let header: Vec<String> = doc.header().iter().map(Paragraph::text).collect();
+    assert_eq!(header, ["Akshara Trust", "12 Temple Street", "Mysuru"]);
+    assert!(doc.header()[0].runs[0].attrs.bold && doc.header()[0].align == Align::Center);
+    assert_eq!(doc.footer()[0].text(), "+91 0000 · info@example.org");
+    let back = load_odt(&save_odt(&doc).expect("save"), &Limits::default()).expect("load");
+    assert_eq!(back.header(), doc.header());
+    assert!(doc.undo() && doc.header().is_empty());
+}
+
+#[test]
+fn header_and_footer_from_openoffice_are_read() {
+    let styles = format!(
+        "<office:document-styles {NS}><office:automatic-styles>\
+         <style:page-layout style:name=\"pmX\"><style:page-layout-properties fo:page-width=\"8.5in\" fo:page-height=\"11in\" fo:margin-left=\"1in\"/></style:page-layout>\
+         <style:page-layout style:name=\"pm1\"><style:page-layout-properties fo:page-width=\"5in\" fo:page-height=\"3in\" fo:margin-left=\"0.25in\"/></style:page-layout>\
+         <style:style style:name=\"MP1\" style:family=\"paragraph\"><style:paragraph-properties fo:text-align=\"center\"/></style:style>\
+         </office:automatic-styles><office:master-styles>\
+         <style:master-page style:name=\"Other\" style:page-layout-name=\"pmX\"/>\
+         <style:master-page style:name=\"Standard\" style:page-layout-name=\"pm1\">\
+         <style:header><text:p text:style-name=\"MP1\">Head <text:page-number text:select-page=\"current\">3</text:page-number></text:p></style:header>\
+         <style:footer style:display=\"false\"><text:p>hidden</text:p></style:footer>\
+         </style:master-page></office:master-styles></office:document-styles>"
+    );
+    let content = format!(
+        "<office:document-content {NS}><office:automatic-styles>\
+         <style:style style:name=\"MP1\" style:family=\"paragraph\"><style:paragraph-properties fo:text-align=\"end\"/></style:style>\
+         </office:automatic-styles><office:body><office:text><text:p text:style-name=\"MP1\">body</text:p></office:text></office:body></office:document-content>"
+    );
+    let mut pkg = Package::new(ns::MIME_ODT);
+    pkg.insert("content.xml", content.into_bytes()).expect("content");
+    pkg.insert("styles.xml", styles.into_bytes()).expect("styles");
+    let doc = load_odt(&pkg.write().expect("zip"), &Limits::default()).expect("load");
+    assert!((doc.page().width - 360.0).abs() < 0.1 && (doc.page().margin - 18.0).abs() < 0.1);
+    assert_eq!(doc.header().len(), 1);
+    assert_eq!(doc.header()[0].text(), "Head 3");
+    assert_eq!(doc.header()[0].align, Align::Center, "header uses the styles.xml style");
+    assert_eq!(doc.header()[0].runs.last().and_then(|r| r.attrs.field), Some(Field::PageNumber));
+    assert!(doc.footer().is_empty());
+    assert!(matches!(&doc.blocks()[0], Block::Paragraph(p) if p.align == Align::Right));
+}
+

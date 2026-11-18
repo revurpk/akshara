@@ -116,17 +116,43 @@ Each paragraph is edited directly on the page.
 | New paragraph / line break | Enter / Shift+Enter |
 | Join with previous paragraph | Backspace at the start (on a list item or quote, the first Backspace turns it back into body text) |
 | Bold / italic / underline | Ctrl+B / Ctrl+I / Ctrl+U, or the toolbar |
-| Strike-through, monospace, superscript, subscript, colours, highlight, size, link | toolbar |
+| Superscript / subscript | Ctrl+Shift+P / Ctrl+Shift+B, or the toolbar |
+| Strike-through, monospace, colours, highlight, size, link | toolbar |
 | Paragraph style | the style menu: body text, title, headings 1–6, quotation, preformatted |
 | Lists | bullet / numbered buttons; Tab and Shift+Tab change the level |
+| Indent | the indent buttons move body text in half-inch steps (Tab in body text types a tab) |
 | Alignment | left, centre, right, justify |
 | Tables | *Insert table* (e.g. `3 x 4`); Tab moves to the next cell and adds a row at the end; right-click or long-press a cell for row and column commands |
-| Page break | *Insert page break* |
+| Page break | *Insert page break*; each page is shown as its own sheet |
+| Page size, orientation, margins | *Page layout* menu → *Page setup…* (A4, A5, A3, Letter, Legal, envelopes, index cards, or custom) |
+| Header and footer | *Page layout* → *Header* / *Footer*; type on the first page, other pages show a copy (click it to edit) |
+| Page numbers | *Page layout* → *Insert page number* / *Insert page count* (fields, shaded grey on screen) |
+| Letterhead | *Page layout* → *Letterhead…*: your name, address and contact details become the header and footer |
+| Envelope | *Page layout* → *New envelope…*: pick DL, C6, C5, C4 or #10, type the addresses; opens as a new document |
+| Labels | *Page layout* → *New labels…*: pick an Avery sheet (L7160, L7163, L7173, L7651, 5160, 5163, 5167); the same text on every label, or one label per entry separated by blank lines |
+| Index cards | *Page layout* → *New index cards…*: 3 × 5, 4 × 6, 5 × 8 in or A7, one card per page |
+| Print | Ctrl+P or the printer button: a preview, then the printer and number of copies |
+| PDF | *Page layout* → *Export as PDF…*, or *Export as PDF* in the print preview |
 | Find & replace | Ctrl+F |
 | Undo / redo | Ctrl+Z / Ctrl+Y (typing in one paragraph is undone as one step) |
 
 The status bar shows word, character and paragraph counts, plus zoom. Links
 can only use `http`, `https` or `mailto`.
+
+**Printing.** Pages are drawn by Akshara itself (so every script prints
+exactly as on screen) at 200 dpi and sent as a PDF to the system's print
+queue: `lp` on Linux and macOS, with a choice of printer. On Windows, and
+where no print queue is set up, the PDF opens in your PDF viewer to print
+from there. Phones and tablets offer PDF export. Pages break only at page
+breaks and where the text no longer fits, between paragraphs and table
+rows; a single paragraph taller than a page is cut off. Label sheets print
+at the exact label positions: check "actual size" (no scaling) in the
+printer settings.
+
+**Superscript and subscript.** Digits, `+ − = ( )` and a few letters are
+drawn with the font's raised and lowered glyphs. Other characters are only
+drawn smaller on screen; files and printouts in other programs show them
+raised as usual.
 
 ## Calc
 
@@ -221,9 +247,10 @@ and content using them is simplified or dropped when a document is opened
 and saved again:
 
 - Writer: images and drawings, frames, footnotes and endnotes, comments,
-  tracked changes, fields (page numbers, dates), headers and footers,
-  sections and columns, custom fonts per run, line spacing and indents,
-  merged table cells and table styling, and spell checking.
+  tracked changes, fields other than page number and page count, different
+  headers and footers for first, left and right pages, sections and
+  columns, custom fonts per run, line spacing, right and first-line
+  indents, merged table cells and table styling, and spell checking.
 - Calc: charts, images, cell comments, merged cells, conditional formatting,
   data validation, named ranges, pivot tables, row heights, custom number
   format codes (the format *category* is kept), and the remaining functions.
@@ -231,7 +258,8 @@ and saved again:
 - Transliteration: Hindi-style dropping of the final inherent vowel
   (`kamal` → कमल) and the nukta letters ज़/फ़ (`z`, `f`) are not part of the
   teltools scheme; type `kamala`, or add a nukta with `^n`.
-- All: printing and PDF export, password-protected documents (they are
-  refused), and Microsoft Office formats (`.docx`, `.xlsx`).
+- All: printing and PDF export from Calc and Math, password-protected
+  documents (they are refused), and Microsoft Office formats (`.docx`,
+  `.xlsx`).
 
 Keep an original copy when editing complex documents made elsewhere.

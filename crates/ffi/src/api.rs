@@ -9,7 +9,9 @@ use office_calc::{self as calc, Axis, CellAddr, HAlign, NumberFormat, Range, Sty
 use office_indic::Script;
 use office_math::Formula;
 use office_odf::{read_file_limited, write_file_atomic, Limits, OdfError, Rgb};
-use office_writer::{self as writer, Align, AttrPatch, Block, Document, ParaKind, ParaRef, Table};
+use office_writer::{
+    self as writer, Align, Area, AttrPatch, Block, Document, Field, Letterhead, PageSetup, ParaKind, ParaRef, Table,
+};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -99,6 +101,12 @@ impl Args<'_> {
         let v = self.get(key)?.as_object().ok_or_else(|| bad(format!("'{key}' must be an object")))?;
         let a = Args(v);
         let block = a.usize("block")?;
+        match a.opt_str("area") {
+            None | Some("body") => {}
+            Some("header") => return Ok(ParaRef::header(block)),
+            Some("footer") => return Ok(ParaRef::footer(block)),
+            Some(other) => return Err(bad(format!("unknown area '{other}'"))),
+        }
         match v.get("cell") {
             None | Some(Value::Null) => Ok(ParaRef::top(block)),
             Some(Value::Array(c)) if c.len() == 3 => {
@@ -113,11 +121,43 @@ impl Args<'_> {
 }
 
 fn para_json(r: ParaRef) -> Value {
-    match r.cell {
-        None => json!({ "block": r.block }),
-        Some((row, col, p)) => json!({ "block": r.block, "cell": [row, col, p] }),
+    match (r.area, r.cell) {
+        (Area::Header, _) => json!({ "area": "header", "block": r.block }),
+        (Area::Footer, _) => json!({ "area": "footer", "block": r.block }),
+        (Area::Body, None) => json!({ "block": r.block }),
+        (Area::Body, Some((row, col, p))) => json!({ "block": r.block, "cell": [row, col, p] }),
     }
 }
+
+fn f32_arg(a: &Args, key: &str) -> R<f32> {
+    a.get(key)?
+        .as_f64()
+        .map(|v| v as f32)
+        .filter(|v| v.is_finite())
+        .ok_or_else(|| bad(format!("'{key}' must be a number")))
+}
+
+fn page_arg(a: &Args) -> R<PageSetup> {
+    let page = PageSetup { width: f32_arg(a, "width")?, height: f32_arg(a, "height")?, margin: f32_arg(a, "margin")? };
+    if page.is_valid() {
+        Ok(page)
+    } else {
+        Err(bad("page size or margins are out of range"))
+    }
+}
+
+fn align_arg(s: &str) -> R<Align> {
+    match s {
+        "left" => Ok(Align::Left),
+        "center" => Ok(Align::Center),
+        "right" => Ok(Align::Right),
+        "justify" => Ok(Align::Justify),
+        other => Err(bad(format!("unknown alignment '{other}'"))),
+    }
+}
+
+/// Most page images one PDF request may name.
+const MAX_PDF_PAGES: usize = writer::pdf::MAX_PAGES;
 
 fn color(v: &Value) -> R<Option<Rgb>> {
     match v {
@@ -392,6 +432,47 @@ impl Registry {
                 };
                 self.insert(doc)
             }
+            "new_envelope" => {
+                let page = page_arg(&a)?;
+                let doc = Document::envelope(page, a.opt_str("sender").unwrap_or(""), a.opt_str("recipient").unwrap_or(""));
+                self.insert(Doc::Writer(Box::new(doc)))
+            }
+            "new_index_cards" => {
+                let page = page_arg(&a)?;
+                let count = a.0.get("count").and_then(Value::as_u64).unwrap_or(1).min(500) as usize;
+                self.insert(Doc::Writer(Box::new(Document::index_cards(page, count))))
+            }
+            "new_labels" => {
+                let id = a.str("sheet")?;
+                let sheet = writer::label_sheet(id).ok_or_else(|| bad(format!("unknown label sheet '{id}'")))?;
+                let text = a.opt_str("text").unwrap_or("");
+                if text.len() > MAX_TRANSLIT_LEN {
+                    return Err(OdfError::limit("label text is too long"));
+                }
+                let doc = Document::labels(sheet, text, a.opt_bool("same").unwrap_or(true))?;
+                self.insert(Doc::Writer(Box::new(doc)))
+            }
+            "paper_sizes" => Ok(json!({
+                "papers": to_value(&writer::PAPER_SIZES),
+                "labels": to_value(&writer::LABEL_SHEETS),
+            })),
+            "pdf_from_pngs" => {
+                let out = a.str("path")?.to_owned();
+                let (width, height) = (f32_arg(&a, "width")?, f32_arg(&a, "height")?);
+                let pngs = a.get("pngs")?.as_array().ok_or_else(|| bad("'pngs' must be a list of paths"))?;
+                if pngs.len() > MAX_PDF_PAGES {
+                    return Err(OdfError::limit("too many pages"));
+                }
+                let mut pages = Vec::with_capacity(pngs.len());
+                for p in pngs {
+                    let path = p.as_str().ok_or_else(|| bad("'pngs' must be a list of paths"))?;
+                    let bytes = read_file_limited(Path::new(path), &self.limits)?;
+                    pages.push(writer::pdf::decode_png(&bytes)?);
+                }
+                let pdf = writer::pdf::images_to_pdf(&pages, width, height, a.opt_str("title"))?;
+                write_file_atomic(Path::new(&out), &pdf)?;
+                Ok(json!(pages.len()))
+            }
             "open" => {
                 let path = a.str("path")?;
                 let bytes = read_file_limited(Path::new(path), &self.limits)?;
@@ -612,7 +693,14 @@ impl Registry {
             // ---- writer ----
             "writer.get" => {
                 let d = self.writer(&a)?;
-                Ok(json!({ "blocks": to_value(&d.blocks()), "page": to_value(&d.page), "stats": to_value(&d.stats()) }))
+                Ok(json!({
+                    "blocks": to_value(&d.blocks()),
+                    "header": to_value(&d.header()),
+                    "footer": to_value(&d.footer()),
+                    "page": to_value(d.page()),
+                    "paper": d.page().paper().map(|p| p.id),
+                    "stats": to_value(&d.stats()),
+                }))
             }
             "writer.stats" => Ok(to_value(&self.writer(&a)?.stats())),
             "writer.para" => {
@@ -654,19 +742,58 @@ impl Registry {
             }
             "writer.align" => {
                 let r = a.para("para")?;
-                let align = match a.str("align")? {
-                    "left" => Align::Left,
-                    "center" => Align::Center,
-                    "right" => Align::Right,
-                    "justify" => Align::Justify,
-                    other => return Err(bad(format!("unknown alignment '{other}'"))),
-                };
+                let align = align_arg(a.str("align")?)?;
                 self.writer(&a)?.set_align(r, align)?;
                 Ok(Value::Null)
             }
             "writer.indent" => {
                 let (r, delta) = (a.para("para")?, a.i32("delta")?);
                 self.writer(&a)?.indent(r, delta)?;
+                Ok(Value::Null)
+            }
+            "writer.spacing" => {
+                let r = a.para("para")?;
+                let (indent, space) = (f32_arg(&a, "indent")?, f32_arg(&a, "space_before")?);
+                self.writer(&a)?.set_spacing(r, indent, space)?;
+                Ok(Value::Null)
+            }
+            "writer.field" => {
+                let (r, at) = (a.para("para")?, a.usize("at")?);
+                let field = match a.str("field")? {
+                    "page_number" => Field::PageNumber,
+                    "page_count" => Field::PageCount,
+                    other => return Err(bad(format!("unknown field '{other}'"))),
+                };
+                self.writer(&a)?.insert_field(r, at, field)?;
+                Ok(Value::Null)
+            }
+            "writer.page" => {
+                let page = page_arg(&a)?;
+                self.writer(&a)?.set_page(page)?;
+                Ok(Value::Null)
+            }
+            "writer.header" | "writer.footer" => {
+                let on = a.bool("on")?;
+                let d = self.writer(&a)?;
+                if op == "writer.header" {
+                    d.set_header(on)?;
+                } else {
+                    d.set_footer(on)?;
+                }
+                Ok(Value::Null)
+            }
+            "writer.letterhead" => {
+                let head = Letterhead {
+                    name: a.opt_str("name").unwrap_or("").to_owned(),
+                    details: a.opt_str("details").unwrap_or("").to_owned(),
+                    contact: a.opt_str("contact").unwrap_or("").to_owned(),
+                    align: align_arg(a.opt_str("align").unwrap_or("left"))?,
+                    color: match a.0.get("color") {
+                        Some(v) => color(v)?,
+                        None => None,
+                    },
+                };
+                self.writer(&a)?.set_letterhead(&head)?;
                 Ok(Value::Null)
             }
             "writer.insert_table" => {

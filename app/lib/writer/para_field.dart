@@ -13,6 +13,133 @@ Color? _parseColor(Object? hex) {
   return v == null ? null : Color(0xFF000000 | v);
 }
 
+// Characters the bundled Noto fonts have superscript / subscript glyphs for
+// (their `sups` / `subs` features). Those are drawn with the feature at full
+// size, which raises or lowers them properly. Flutter cannot shift the
+// baseline of editable text, so other characters are only drawn smaller.
+const _supsGlyphs = '0123456789+-=()n';
+const _subsGlyphs = '0123456789+-=()hklmnpst';
+
+/// Shading behind fields (page number, page count) in the editor.
+const fieldShade = Color(0x33808080);
+
+/// The text of a run as shown: fields show their value for [page] of
+/// [pages] when given (read-only views), else their stored text.
+String runText(Map<String, dynamic> run, {int? page, int? pages}) {
+  final field = run['field'];
+  if (field == 'page_number' && page != null) return '$page';
+  if (field == 'page_count' && pages != null) return '$pages';
+  return run['text'] as String;
+}
+
+/// Spans for attributed runs. [shadeFields] marks fields with a grey
+/// background (editor only, never printed).
+List<InlineSpan> runSpans(
+  List<Map<String, dynamic>> runs,
+  TextStyle base,
+  Color linkColor, {
+  int? page,
+  int? pages,
+  bool shadeFields = false,
+}) {
+  final out = <InlineSpan>[];
+  for (final run in runs) {
+    final text = runText(run, page: page, pages: pages);
+    if (text.isEmpty) continue;
+    final sup = run['superscript'] == true, sub = run['subscript'] == true;
+    if (!sup && !sub) {
+      out.add(TextSpan(text: text, style: runStyle(run, base, linkColor, shadeFields: shadeFields)));
+      continue;
+    }
+    // Split into pieces the font can raise / lower and pieces it cannot.
+    final glyphs = sup ? _supsGlyphs : _subsGlyphs;
+    var start = 0;
+    while (start < text.length) {
+      final covered = glyphs.contains(text[start]);
+      var end = start + 1;
+      while (end < text.length && glyphs.contains(text[end]) == covered) {
+        end++;
+      }
+      out.add(TextSpan(
+        text: text.substring(start, end),
+        style: runStyle(run, base, linkColor, shadeFields: shadeFields, fontRaises: covered),
+      ));
+      start = end;
+    }
+  }
+  return out;
+}
+
+/// Style of one run. For super- and subscript, [fontRaises] says whether the
+/// font has raised / lowered glyphs for the text.
+TextStyle runStyle(
+  Map<String, dynamic> run,
+  TextStyle base,
+  Color linkColor, {
+  bool shadeFields = false,
+  bool fontRaises = false,
+}) {
+  final decorations = <TextDecoration>[
+    if (run['underline'] == true || run['link'] != null) TextDecoration.underline,
+    if (run['strike'] == true) TextDecoration.lineThrough,
+  ];
+  final baseSize = base.fontSize ?? 16;
+  // Run sizes are in points; the base style is already scaled from 12 pt.
+  final size = run['size'] is num ? (run['size'] as num).toDouble() * (baseSize / 12) : baseSize;
+  final sup = run['superscript'] == true, sub = run['subscript'] == true;
+  final highlight = _parseColor(run['highlight']) ?? (shadeFields && run['field'] != null ? fieldShade : null);
+  return TextStyle(
+    fontWeight: run['bold'] == true ? FontWeight.bold : null,
+    fontStyle: run['italic'] == true ? FontStyle.italic : null,
+    decoration: decorations.isEmpty ? null : TextDecoration.combine(decorations),
+    fontFamily: run['code'] == true ? monoFont : null,
+    color: _parseColor(run['color']) ?? (run['link'] != null ? linkColor : null),
+    backgroundColor: highlight,
+    fontSize: (sup || sub) && !fontRaises ? size * 0.65 : size,
+    fontFeatures: !fontRaises
+        ? null
+        : sup
+            ? const [FontFeature.superscripts()]
+            : const [FontFeature.subscripts()],
+  );
+}
+
+/// Base text style of a paragraph kind at [scale] logical pixels per point.
+TextStyle paraTextStyle(String kind, int level, double scale) {
+  final s = scale;
+  final body = 12.0 * s;
+  switch (kind) {
+    case 'title':
+      return TextStyle(fontSize: 28 * s, fontWeight: FontWeight.bold, height: 1.3);
+    case 'heading':
+      const sizes = [20.0, 17.0, 14.5, 13.0, 12.0, 12.0];
+      return TextStyle(
+        fontSize: sizes[(level - 1).clamp(0, 5)] * s,
+        fontWeight: FontWeight.bold,
+        fontStyle: level >= 5 ? FontStyle.italic : null,
+        height: 1.3,
+      );
+    case 'quote':
+      return TextStyle(fontSize: body, fontStyle: FontStyle.italic, height: 1.4);
+    case 'code':
+      return TextStyle(
+        fontSize: 10 * s,
+        fontFamily: monoFont,
+        fontFamilyFallback: docFallback,
+        height: 1.3,
+      );
+    default:
+      return TextStyle(fontSize: body, height: 1.4);
+  }
+}
+
+TextAlign paraTextAlign(String? align) => switch (align) {
+      'center' => TextAlign.center,
+      'right' => TextAlign.right,
+      'justify' => TextAlign.justify,
+      _ => TextAlign.left,
+    };
+
 /// Text controller that renders the paragraph's runs with their attributes.
 class ParaController extends TextEditingController {
   List<Map<String, dynamic>> _runs = const [];
@@ -81,37 +208,7 @@ class ParaController extends TextEditingController {
     }
     final base = style ?? const TextStyle();
     final linkColor = Theme.of(context).colorScheme.primary;
-    return TextSpan(
-      style: base,
-      children: [
-        for (final run in _runs)
-          if ((run['text'] as String).isNotEmpty) TextSpan(text: run['text'] as String, style: _runStyle(run, base, linkColor)),
-      ],
-    );
-  }
-
-  TextStyle _runStyle(Map<String, dynamic> run, TextStyle base, Color linkColor) {
-    final decorations = <TextDecoration>[
-      if (run['underline'] == true || run['link'] != null) TextDecoration.underline,
-      if (run['strike'] == true) TextDecoration.lineThrough,
-    ];
-    final baseSize = base.fontSize ?? 16;
-    final size = run['size'] is num ? (run['size'] as num).toDouble() * (baseSize / 16) * 1.3333 : baseSize;
-    final script = run['superscript'] == true || run['subscript'] == true;
-    return TextStyle(
-      fontWeight: run['bold'] == true ? FontWeight.bold : null,
-      fontStyle: run['italic'] == true ? FontStyle.italic : null,
-      decoration: decorations.isEmpty ? null : TextDecoration.combine(decorations),
-      fontFamily: run['code'] == true ? monoFont : null,
-      color: _parseColor(run['color']) ?? (run['link'] != null ? linkColor : null),
-      backgroundColor: _parseColor(run['highlight']),
-      fontSize: script ? size * 0.65 : size,
-      fontFeatures: run['superscript'] == true
-          ? const [FontFeature.superscripts()]
-          : run['subscript'] == true
-              ? const [FontFeature.subscripts()]
-              : null,
-    );
+    return TextSpan(style: base, children: runSpans(_runs, base, linkColor, shadeFields: true));
   }
 }
 
@@ -127,6 +224,8 @@ class ParaField extends StatefulWidget {
     required this.label,
     required this.scale,
     required this.page,
+    this.indent = 0,
+    this.spaceBefore = 0,
   });
 
   final ParaRef paraRef;
@@ -138,6 +237,10 @@ class ParaField extends StatefulWidget {
   final String? label;
   final double scale;
   final WriterPageState page;
+
+  /// Left indent and space above, in points.
+  final double indent;
+  final double spaceBefore;
 
   @override
   State<ParaField> createState() => _ParaFieldState();
@@ -200,6 +303,11 @@ class _ParaFieldState extends State<ParaField> {
     final c = widget.controller;
     final sel = c.selection;
     final key = event.logicalKey;
+    if (ctrl && shift && (key == LogicalKeyboardKey.keyP || key == LogicalKeyboardKey.keyB)) {
+      // OpenOffice's shortcuts: Ctrl+Shift+P superscript, Ctrl+Shift+B subscript.
+      widget.page.toggleAttr(key == LogicalKeyboardKey.keyP ? 'superscript' : 'subscript');
+      return KeyEventResult.handled;
+    }
     if (ctrl) {
       if (key == LogicalKeyboardKey.keyB) {
         widget.page.toggleAttr('bold');
@@ -243,40 +351,9 @@ class _ParaFieldState extends State<ParaField> {
     return KeyEventResult.ignored;
   }
 
-  TextStyle _style(ThemeData theme) {
-    final s = widget.scale;
-    final body = 12.0 * s;
-    switch (widget.kind) {
-      case 'title':
-        return TextStyle(fontSize: 28 * s, fontWeight: FontWeight.bold, height: 1.3);
-      case 'heading':
-        const sizes = [20.0, 17.0, 14.5, 13.0, 12.0, 12.0];
-        return TextStyle(
-          fontSize: sizes[(widget.level - 1).clamp(0, 5)] * s,
-          fontWeight: FontWeight.bold,
-          fontStyle: widget.level >= 5 ? FontStyle.italic : null,
-          height: 1.3,
-        );
-      case 'quote':
-        return TextStyle(fontSize: body, fontStyle: FontStyle.italic, height: 1.4);
-      case 'code':
-        return TextStyle(
-          fontSize: 10 * s,
-          fontFamily: monoFont,
-          fontFamilyFallback: docFallback,
-          height: 1.3,
-        );
-      default:
-        return TextStyle(fontSize: body, height: 1.4);
-    }
-  }
+  TextStyle _style(ThemeData theme) => paraTextStyle(widget.kind, widget.level, widget.scale);
 
-  TextAlign get _textAlign => switch (widget.align) {
-        'center' => TextAlign.center,
-        'right' => TextAlign.right,
-        'justify' => TextAlign.justify,
-        _ => TextAlign.left,
-      };
+  TextAlign get _textAlign => paraTextAlign(widget.align);
 
   @override
   Widget build(BuildContext context) {
@@ -339,7 +416,8 @@ class _ParaFieldState extends State<ParaField> {
     }
     return Padding(
       padding: EdgeInsets.only(
-        top: isHeading ? 10 * widget.scale : 0,
+        left: widget.indent * widget.scale,
+        top: (isHeading ? 10 : 0) * widget.scale + widget.spaceBefore * widget.scale,
         bottom: (widget.kind == 'code' ? 0 : (isHeading ? 4 : 5)) * widget.scale,
       ),
       child: field,

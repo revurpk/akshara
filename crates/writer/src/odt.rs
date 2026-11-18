@@ -1,11 +1,15 @@
 //! OpenDocument Text (`.odt`) import and export.
 //!
 //! Supported: paragraphs, headings, bulleted and numbered lists (nested),
-//! tables (nested tables are flattened to text), page breaks, character
+//! tables (nested tables are flattened to text; fixed column widths, exact
+//! row heights and borderless cells are kept), page breaks, character
 //! attributes (bold, italic, underline, strike-through, monospace, super- and
-//! subscript, colour, highlight, size), links, alignment, metadata and page
-//! size. Images, frames, fields, footnotes, comments and tracked changes are
-//! not modelled; their text content is kept where it is part of the flow.
+//! subscript, colour, highlight, size), links, alignment, left indent and
+//! space above paragraphs, page number and page count fields, metadata, page
+//! size and margin, and the page header and footer of the default master
+//! page. Images, frames, other fields, footnotes, comments and tracked
+//! changes are not modelled; their text content is kept where it is part of
+//! the flow.
 
 use crate::document::Document;
 use crate::model::*;
@@ -27,6 +31,13 @@ struct StyleInfo {
     break_before: bool,
     list_style: Option<String>,
     monospace_font: bool,
+    indent: Option<f32>,
+    space_before: Option<f32>,
+    /// Table column width / exact row height (column and row styles).
+    width: Option<f32>,
+    row_height: Option<f32>,
+    /// Cell style without borders.
+    no_border: bool,
     /// Automatic styles are per-document formatting; common (named) styles
     /// define what a paragraph *is* (heading, quote...).
     automatic: bool,
@@ -142,6 +153,29 @@ fn parse_style(e: &Element, font_faces: &HashMap<String, String>) -> StyleInfo {
             _ => None,
         };
         info.break_before = p.attr("fo:break-before") == Some("page");
+        let len = |attr: &str| {
+            p.attr(attr).and_then(parse_length_pt).map(|v| v as f32).filter(|v| (0.0..=MAX_PARA_SPACING).contains(v))
+        };
+        info.indent = len("fo:margin-left");
+        info.space_before = len("fo:margin-top");
+    }
+    let side = |v: Option<&str>| v.and_then(parse_length_pt).map(|v| v as f32).filter(|v| (0.0..=MAX_PAGE_SIDE).contains(v));
+    if let Some(c) = e.child("style:table-column-properties") {
+        info.width = side(c.attr("style:column-width"));
+    }
+    if let Some(r) = e.child("style:table-row-properties") {
+        info.row_height = side(r.attr("style:row-height"));
+    }
+    if let Some(c) = e.child("style:table-cell-properties") {
+        let none = |v: Option<&str>| v.is_none_or(|b| b == "none" || b.starts_with("0pt") || b.starts_with("0in"));
+        info.no_border = c.attr("fo:border").map_or_else(
+            || {
+                ["fo:border-top", "fo:border-bottom", "fo:border-left", "fo:border-right"]
+                    .iter()
+                    .all(|a| none(c.attr(a)))
+            },
+            |b| none(Some(b)),
+        );
     }
     info
 }
@@ -223,6 +257,8 @@ impl Importer<'_> {
             out.heading_level = style.heading_level.or(out.heading_level);
             out.list_style = style.list_style.clone().or(out.list_style.take());
             out.break_before |= style.break_before;
+            out.indent = style.indent.or(out.indent);
+            out.space_before = style.space_before.or(out.space_before);
         }
         // Recognise the standard heading style names anywhere in the chain,
         // whatever their properties (innermost wins).
@@ -287,6 +323,16 @@ impl Importer<'_> {
                         push_text(runs, &" ".repeat(n), attrs);
                     }
                     "text:tab" => push_text(runs, "\t", attrs),
+                    "text:page-number" | "text:page-count" => {
+                        let field = if el.name == "text:page-number" { Field::PageNumber } else { Field::PageCount };
+                        let a = TextAttrs { field: Some(field), ..attrs.clone() };
+                        let mut inner = Vec::new();
+                        self.inline(el, &a, &mut inner, depth + 1);
+                        let text: String = inner.iter().map(|r| r.text.as_str()).collect();
+                        let text = if text.trim().is_empty() { "1".to_owned() } else { text.chars().take(16).collect() };
+                        // Never merged with a neighbouring field.
+                        runs.push(Run { text, attrs: a });
+                    }
                     "text:line-break" => push_text(runs, "\n", attrs),
                     // Annotations, notes' citations bodies and change-tracking
                     // metadata are not part of the visible text flow.
@@ -337,7 +383,14 @@ impl Importer<'_> {
                 run.attrs.code = false;
             }
         }
-        let mut p = Paragraph { kind: kind.normalized(), align: own.align.unwrap_or_default(), runs };
+        let is_list = matches!(kind, ParaKind::Bullet { .. } | ParaKind::Numbered { .. });
+        let mut p = Paragraph {
+            kind: kind.normalized(),
+            align: own.align.unwrap_or_default(),
+            indent: if is_list { 0.0 } else { own.indent.unwrap_or(0.0) },
+            space_before: own.space_before.unwrap_or(0.0),
+            runs,
+        };
         p.normalize();
         if style.break_before && !self.blocks.is_empty() {
             self.blocks.push(Block::PageBreak);
@@ -407,7 +460,28 @@ impl Importer<'_> {
 
     fn table(&mut self, e: &Element) -> Result<Table> {
         let mut rows = Vec::new();
+        let mut col_widths = Vec::new();
+        let mut row_heights = Vec::new();
+        let mut borders = true;
+        for col in e.elements().flat_map(|c| {
+            if c.name == "table:table-columns" || c.name == "table:table-header-columns" || c.name == "table:table-column-group" {
+                c.children_named("table:table-column").collect::<Vec<_>>()
+            } else if c.name == "table:table-column" {
+                vec![c]
+            } else {
+                Vec::new()
+            }
+        }) {
+            let repeat = col.attr("table:number-columns-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).clamp(1, 64);
+            let width = self.styles.get(col.attr("table:style-name").unwrap_or("")).and_then(|s| s.width);
+            for _ in 0..repeat {
+                if col_widths.len() < 64 {
+                    col_widths.push(width);
+                }
+            }
+        }
         for row in table_rows(e) {
+            let height = self.styles.get(row.attr("table:style-name").unwrap_or("")).and_then(|s| s.row_height);
             let repeat = row.attr("table:number-rows-repeated").and_then(|v| v.parse::<usize>().ok()).unwrap_or(1).clamp(1, 100);
             let mut cells = Vec::new();
             for cell in row.elements() {
@@ -419,6 +493,9 @@ impl Importer<'_> {
                     .and_then(|v| v.parse::<usize>().ok())
                     .unwrap_or(1)
                     .clamp(1, 64);
+                if rows.is_empty() && cells.is_empty() {
+                    borders = !self.styles.get(cell.attr("table:style-name").unwrap_or("")).is_some_and(|s| s.no_border);
+                }
                 let mut paragraphs = Vec::new();
                 self.cell_paragraphs(cell, &mut paragraphs, 0)?;
                 for _ in 0..span {
@@ -430,11 +507,26 @@ impl Importer<'_> {
             for _ in 0..repeat {
                 self.count_block()?;
                 rows.push(cells.clone());
+                row_heights.push(height);
             }
         }
-        let mut table = Table { rows };
+        // Sizes are kept only when every column / row has one.
+        let all = |v: Vec<Option<f32>>| -> Vec<f32> { v.iter().copied().collect::<Option<Vec<f32>>>().unwrap_or_default() };
+        let mut table = Table { rows, col_widths: all(col_widths), row_heights: all(row_heights), borders };
         table.normalize();
         Ok(table)
+    }
+
+    /// Paragraphs of a header or footer (lists and tables flattened). A
+    /// hidden header (`style:display="false"`) counts as none.
+    fn area(&mut self, e: Option<&Element>) -> Result<Vec<Paragraph>> {
+        let Some(e) = e.filter(|e| e.attr("style:display") != Some("false")) else { return Ok(Vec::new()) };
+        let saved = std::mem::take(&mut self.blocks);
+        let mut out = Vec::new();
+        let result = self.cell_paragraphs(e, &mut out, 0);
+        self.blocks = saved;
+        result?;
+        Ok(out)
     }
 
     fn body(&mut self, parent: &Element, depth: usize) -> Result<()> {
@@ -509,12 +601,28 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
     let mut importer =
         Importer { styles: HashMap::new(), list_styles: HashMap::new(), limits, blocks: Vec::new(), block_count: 0 };
     let mut page = PageSetup::default();
+    let (mut header, mut footer) = (Vec::new(), Vec::new());
     if let Some(styles_doc) = &styles_doc {
         importer.collect_styles(styles_doc.child("office:styles"), &font_faces, false);
         importer.collect_styles(styles_doc.child("office:automatic-styles"), &font_faces, true);
-        if let Some(layout) = styles_doc
-            .child("office:automatic-styles")
-            .and_then(|s| s.children_named("style:page-layout").next())
+        // The default master page ("Standard", else the first one) gives the
+        // page layout and the header and footer.
+        let master = styles_doc.child("office:master-styles").and_then(|m| {
+            m.children_named("style:master-page")
+                .find(|p| p.attr("style:name") == Some("Standard"))
+                .or_else(|| m.children_named("style:master-page").next())
+        });
+        if let Some(master) = master {
+            // Header paragraphs use the styles of styles.xml, so read them
+            // before content.xml's automatic styles shadow those names.
+            header = importer.area(master.child("style:header"))?;
+            footer = importer.area(master.child("style:footer"))?;
+        }
+        let layouts = || styles_doc.child("office:automatic-styles").into_iter().flat_map(|s| s.children_named("style:page-layout"));
+        let wanted = master.and_then(|m| m.attr("style:page-layout-name"));
+        if let Some(layout) = layouts()
+            .find(|l| wanted.is_some() && l.attr("style:name") == wanted)
+            .or_else(|| layouts().next())
             .and_then(|l| l.child("style:page-layout-properties"))
         {
             let len = |attr: &str| layout.attr(attr).and_then(parse_length_pt).map(|v| v as f32);
@@ -524,7 +632,7 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
                     page.height = h;
                 }
             }
-            if let Some(m) = len("fo:margin-left").filter(|m| (0.0..=page.width / 3.0).contains(m)) {
+            if let Some(m) = len("fo:margin-left").filter(|m| (0.0..=page.width.min(page.height) / 3.0).contains(m)) {
                 page.margin = m;
             }
         }
@@ -536,8 +644,7 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
         .ok_or_else(|| OdfError::invalid("document has no text body"))?;
     importer.body(text, 0)?;
 
-    let mut doc = Document::from_blocks(importer.blocks);
-    doc.page = page;
+    let mut doc = Document::from_blocks(importer.blocks).with_page(page, header, footer);
     if let Some(meta) = package.get_xml("meta.xml", limits)? {
         doc.meta = Metadata::from_xml(&meta);
     }
@@ -548,44 +655,123 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
 // Export
 // ---------------------------------------------------------------------------
 
-/// Assigns automatic style names to distinct attribute sets.
+/// Paragraph formatting carried by automatic paragraph styles.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ParaFmt {
+    align: Align,
+    indent: f32,
+    space_before: f32,
+}
+
+/// Assigns automatic style names to distinct attribute sets. Styles for
+/// content.xml and styles.xml live in separate tables with different name
+/// prefixes, since the two files have separate automatic styles.
 #[derive(Default)]
 struct StyleTable {
+    prefix: &'static str,
     text: Vec<TextAttrs>,
-    para: Vec<Align>,
+    para: Vec<ParaFmt>,
+    /// (style name, column width) and (style name, row height).
+    cols: Vec<f32>,
+    rows: Vec<f32>,
+    /// Paragraph style names actually used, so unused ones are not written.
+    used_para: Vec<(usize, &'static str)>,
+}
+
+fn intern<T: PartialEq + Clone>(list: &mut Vec<T>, key: &T) -> usize {
+    match list.iter().position(|a| a == key) {
+        Some(i) => i,
+        None => {
+            list.push(key.clone());
+            list.len() - 1
+        }
+    }
 }
 
 impl StyleTable {
+    fn with_prefix(prefix: &'static str) -> StyleTable {
+        StyleTable { prefix, ..Default::default() }
+    }
+
     fn text_style(&mut self, attrs: &TextAttrs) -> Option<String> {
         let mut key = attrs.clone();
         key.link = None;
+        key.field = None;
         if key == TextAttrs::default() {
             return None;
         }
-        let idx = match self.text.iter().position(|a| *a == key) {
-            Some(i) => i,
-            None => {
-                self.text.push(key);
-                self.text.len() - 1
-            }
-        };
-        Some(format!("T{}", idx + 1))
+        Some(format!("{}T{}", self.prefix, intern(&mut self.text, &key) + 1))
     }
 
-    fn para_style(&mut self, kind: ParaKind, align: Align) -> String {
-        let base = base_style(kind);
-        if align == Align::Left {
+    fn para_style(&mut self, p: &Paragraph) -> String {
+        let base = base_style(p.kind);
+        let indent = if list_info(p.kind).is_some() { 0.0 } else { p.indent };
+        let fmt = ParaFmt { align: p.align, indent, space_before: p.space_before };
+        if fmt == (ParaFmt { align: Align::Left, indent: 0.0, space_before: 0.0 }) {
             return base.to_owned();
         }
-        let idx = match self.para.iter().position(|a| *a == align) {
-            Some(i) => i,
-            None => {
-                self.para.push(align);
-                self.para.len() - 1
+        let idx = intern(&mut self.para, &fmt);
+        if !self.used_para.contains(&(idx, base)) {
+            self.used_para.push((idx, base));
+        }
+        // Formatting styles are generic; the kind is carried by the parent.
+        format!("{}P{}_{}", self.prefix, idx + 1, base)
+    }
+
+    fn col_style(&mut self, width: f32) -> String {
+        format!("{}Co{}", self.prefix, intern(&mut self.cols, &width) + 1)
+    }
+
+    fn row_style(&mut self, height: f32) -> String {
+        format!("{}Ro{}", self.prefix, intern(&mut self.rows, &height) + 1)
+    }
+
+    /// Writes the automatic styles collected so far.
+    fn write(&self, w: &mut XmlWriter) {
+        // Points in shortest round-trip form, so values survive exactly.
+        let pt = |v: f32| format!("{v}pt");
+        for (i, attrs) in self.text.iter().enumerate() {
+            w.start("style:style").attr("style:name", &format!("{}T{}", self.prefix, i + 1)).attr("style:family", "text");
+            write_text_props(w, attrs);
+            w.end();
+        }
+        let mut used = self.used_para.clone();
+        used.sort_unstable();
+        for (i, base) in used {
+            let fmt = self.para[i];
+            w.start("style:style")
+                .attr("style:name", &format!("{}P{}_{}", self.prefix, i + 1, base))
+                .attr("style:family", "paragraph")
+                .attr("style:parent-style-name", base);
+            w.start("style:paragraph-properties");
+            if fmt.align != Align::Left {
+                let value = match fmt.align {
+                    Align::Left => "start",
+                    Align::Center => "center",
+                    Align::Right => "end",
+                    Align::Justify => "justify",
+                };
+                w.attr("fo:text-align", value);
             }
-        };
-        // Alignment styles are generic; the kind is carried by the parent.
-        format!("P{}_{}", idx + 1, base)
+            if fmt.indent > 0.0 {
+                w.attr("fo:margin-left", &pt(fmt.indent));
+            }
+            if fmt.space_before > 0.0 {
+                w.attr("fo:margin-top", &pt(fmt.space_before));
+            }
+            w.end();
+            w.end();
+        }
+        for (i, width) in self.cols.iter().enumerate() {
+            w.start("style:style").attr("style:name", &format!("{}Co{}", self.prefix, i + 1)).attr("style:family", "table-column");
+            w.start("style:table-column-properties").attr("style:column-width", &pt(*width)).end();
+            w.end();
+        }
+        for (i, height) in self.rows.iter().enumerate() {
+            w.start("style:style").attr("style:name", &format!("{}Ro{}", self.prefix, i + 1)).attr("style:family", "table-row");
+            w.start("style:table-row-properties").attr("style:row-height", &pt(*height)).end();
+            w.end();
+        }
     }
 }
 
@@ -652,7 +838,15 @@ fn write_runs(w: &mut XmlWriter, p: &Paragraph, styles: &mut StyleTable) {
         if let Some(style) = &style {
             w.start("text:span").attr("text:style-name", style);
         }
-        write_flow_text(w, &run.text);
+        match run.attrs.field {
+            Some(Field::PageNumber) => {
+                w.start("text:page-number").attr("text:select-page", "current").text(&run.text).end();
+            }
+            Some(Field::PageCount) => {
+                w.start("text:page-count").text(&run.text).end();
+            }
+            None => write_flow_text(w, &run.text),
+        }
         if style.is_some() {
             w.end();
         }
@@ -708,7 +902,7 @@ fn write_flow_text(w: &mut XmlWriter, text: &str) {
 }
 
 fn write_paragraph(w: &mut XmlWriter, p: &Paragraph, styles: &mut StyleTable) {
-    let style = styles.para_style(p.kind, p.align);
+    let style = styles.para_style(p);
     match p.kind {
         ParaKind::Heading { level } => {
             w.start("text:h").attr("text:style-name", &style).attr("text:outline-level", &level.to_string());
@@ -783,12 +977,27 @@ fn write_list(w: &mut XmlWriter, items: &[&Paragraph], styles: &mut StyleTable) 
 }
 
 fn write_table(w: &mut XmlWriter, t: &Table, index: usize, styles: &mut StyleTable) {
-    w.start("table:table").attr("table:name", &format!("Table{}", index + 1)).attr("table:style-name", "Tbl");
-    w.start("table:table-column").attr("table:number-columns-repeated", &t.cols().max(1).to_string()).end();
-    for row in &t.rows {
+    let fixed = !t.col_widths.is_empty();
+    w.start("table:table")
+        .attr("table:name", &format!("Table{}", index + 1))
+        .attr("table:style-name", if fixed { "TblFixed" } else { "Tbl" });
+    if fixed {
+        for width in &t.col_widths {
+            let style = styles.col_style(*width);
+            w.start("table:table-column").attr("table:style-name", &style).end();
+        }
+    } else {
+        w.start("table:table-column").attr("table:number-columns-repeated", &t.cols().max(1).to_string()).end();
+    }
+    let cell_style = if t.borders { "TblCell" } else { "TblCellPlain" };
+    for (r, row) in t.rows.iter().enumerate() {
         w.start("table:table-row");
+        if let Some(h) = t.row_heights.get(r) {
+            let style = styles.row_style(*h);
+            w.attr("table:style-name", &style);
+        }
         for cell in row {
-            w.start("table:table-cell").attr("table:style-name", "TblCell").attr("office:value-type", "string");
+            w.start("table:table-cell").attr("table:style-name", cell_style).attr("office:value-type", "string");
             write_blocks(w, cell.iter(), styles);
             w.end();
         }
@@ -840,6 +1049,11 @@ fn body_xml(doc: &Document, styles: &mut StyleTable) -> String {
             }
             Block::Table(t) => {
                 flush(&mut w, &mut pending, styles);
+                if page_break_next {
+                    // The break must come before the table, not after it.
+                    w.start("text:p").attr("text:style-name", "PageBreak").end();
+                    page_break_next = false;
+                }
                 write_table(&mut w, t, tables, styles);
                 tables += 1;
             }
@@ -857,7 +1071,7 @@ fn body_xml(doc: &Document, styles: &mut StyleTable) -> String {
 }
 
 fn content_xml(doc: &Document) -> String {
-    let mut styles = StyleTable::default();
+    let mut styles = StyleTable::with_prefix("");
     let body = body_xml(doc, &mut styles);
     let mut w = XmlWriter::new();
     w.start("office:document-content")
@@ -872,42 +1086,33 @@ fn content_xml(doc: &Document) -> String {
         .end();
     w.end();
     w.start("office:automatic-styles");
-    for (i, attrs) in styles.text.iter().enumerate() {
-        w.start("style:style").attr("style:name", &format!("T{}", i + 1)).attr("style:family", "text");
-        write_text_props(&mut w, attrs);
-        w.end();
-    }
-    for (i, align) in styles.para.iter().enumerate() {
-        for base in [
-            "Standard", "Heading_20_1", "Heading_20_2", "Heading_20_3", "Heading_20_4", "Heading_20_5",
-            "Heading_20_6", "Quotations", "Preformatted_20_Text", "Title",
-        ] {
-            let name = format!("P{}_{}", i + 1, base);
-            if !body.contains(&format!("\"{name}\"")) {
-                continue;
-            }
-            w.start("style:style")
-                .attr("style:name", &name)
-                .attr("style:family", "paragraph")
-                .attr("style:parent-style-name", base);
-            let value = match align {
-                Align::Left => "start",
-                Align::Center => "center",
-                Align::Right => "end",
-                Align::Justify => "justify",
-            };
-            w.start("style:paragraph-properties").attr("fo:text-align", value).end();
-            w.end();
-        }
-    }
+    styles.write(&mut w);
     w.start("style:style").attr("style:name", "PageBreak").attr("style:family", "paragraph").attr("style:parent-style-name", "Standard");
     w.start("style:paragraph-properties").attr("fo:break-before", "page").end();
     w.end();
     w.start("style:style").attr("style:name", "Tbl").attr("style:family", "table");
     w.start("style:table-properties").attr("table:align", "margins").end();
     w.end();
+    w.start("style:style").attr("style:name", "TblFixed").attr("style:family", "table");
+    let width: f32 = doc
+        .blocks()
+        .iter()
+        .filter_map(|b| match b {
+            Block::Table(t) if !t.col_widths.is_empty() => Some(t.col_widths.iter().sum::<f32>()),
+            _ => None,
+        })
+        .fold(0.0, f32::max);
+    w.start("style:table-properties").attr("table:align", "left");
+    if width > 0.0 {
+        w.attr("style:width", &format_length_in(f64::from(width)));
+    }
+    w.end();
+    w.end();
     w.start("style:style").attr("style:name", "TblCell").attr("style:family", "table-cell");
     w.start("style:table-cell-properties").attr("fo:padding", "0.05in").attr("fo:border", "0.5pt solid #000000").end();
+    w.end();
+    w.start("style:style").attr("style:name", "TblCellPlain").attr("style:family", "table-cell");
+    w.start("style:table-cell-properties").attr("fo:padding", "0.08in").attr("fo:border", "none").end();
     w.end();
     for (name, numbered) in [("L1", false), ("L2", true)] {
         w.start("text:list-style").attr("style:name", name);
@@ -943,9 +1148,25 @@ fn content_xml(doc: &Document) -> String {
 }
 
 fn styles_xml(doc: &Document) -> String {
+    // Header and footer paragraphs are rendered first so their automatic
+    // styles can be written into this file's automatic styles.
+    let mut area_styles = StyleTable::with_prefix("M");
+    let area = |name: &str, paragraphs: &[Paragraph], styles: &mut StyleTable| -> Option<String> {
+        if paragraphs.is_empty() {
+            return None;
+        }
+        let mut w = XmlWriter::fragment();
+        w.start(name);
+        write_blocks(&mut w, paragraphs.iter(), styles);
+        w.end();
+        Some(w.finish())
+    };
+    let header = area("style:header", doc.header(), &mut area_styles);
+    let footer = area("style:footer", doc.footer(), &mut area_styles);
+    let page = doc.page();
     let mut w = XmlWriter::new();
     w.start("office:document-styles")
-        .namespaces(&["office", "style", "text", "table", "fo", "svg"])
+        .namespaces(&["office", "style", "text", "table", "fo", "svg", "xlink"])
         .attr("office:version", ns::ODF_VERSION);
     w.start("office:font-face-decls");
     for (name, generic, pitch) in [("Liberation Serif", "roman", "variable"), ("Liberation Sans", "swiss", "variable"), ("Liberation Mono", "modern", "fixed")] {
@@ -996,18 +1217,35 @@ fn styles_xml(doc: &Document) -> String {
     });
     w.end(); // office:styles
     w.start("office:automatic-styles");
+    area_styles.write(&mut w);
     w.start("style:page-layout").attr("style:name", "pm1");
     w.start("style:page-layout-properties")
-        .attr("fo:page-width", &format_length_in(f64::from(doc.page.width)))
-        .attr("fo:page-height", &format_length_in(f64::from(doc.page.height)))
-        .attr("style:print-orientation", if doc.page.width > doc.page.height { "landscape" } else { "portrait" });
+        .attr("fo:page-width", &format_length_in(f64::from(page.width)))
+        .attr("fo:page-height", &format_length_in(f64::from(page.height)))
+        .attr("style:print-orientation", if page.is_landscape() { "landscape" } else { "portrait" });
     for side in ["top", "bottom", "left", "right"] {
-        w.attr(&format!("fo:margin-{side}"), &format_length_in(f64::from(doc.page.margin)));
+        w.attr(&format!("fo:margin-{side}"), &format_length_in(f64::from(page.margin)));
     }
-    w.end().end().end();
+    w.end();
+    // Header and footer sit inside the page margins with a small gap to the
+    // text, as in the editor.
+    for (style, props, gap) in [("style:header-style", "style:header-properties", "fo:margin-bottom"), ("style:footer-style", "style:footer-properties", "fo:margin-top")] {
+        w.start(style).start(props).attr("fo:min-height", "0in").attr(gap, "0.1in").end().end();
+    }
+    w.end().end();
     w.start("office:master-styles");
-    w.start("style:master-page").attr("style:name", "Standard").attr("style:page-layout-name", "pm1").end();
-    w.finish()
+    w.start("style:master-page").attr("style:name", "Standard").attr("style:page-layout-name", "pm1");
+    w.end();
+    let mut out = w.finish();
+    // Splice the pre-rendered header and footer into the master page.
+    let parts = format!("{}{}", header.unwrap_or_default(), footer.unwrap_or_default());
+    if !parts.is_empty() {
+        let empty = "style:page-layout-name=\"pm1\"/>";
+        if let Some(pos) = out.rfind(empty) {
+            out.replace_range(pos..pos + empty.len(), &format!("style:page-layout-name=\"pm1\">{parts}</style:master-page>"));
+        }
+    }
+    out
 }
 
 /// Serialises a document to the bytes of an `.odt` file.

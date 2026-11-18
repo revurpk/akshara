@@ -223,6 +223,12 @@ class ShellState extends State<Shell> {
     }
   }
 
+  /// Opens a document the core already created (envelope, labels...) in a
+  /// new tab.
+  void adoptDocument(int handle, DocKind kind) {
+    _add(OpenDoc(handle, kind, null)..untitledNumber = ++_untitled);
+  }
+
   Future<void> openPath(String path) async {
     final existing = _docs.indexWhere((d) => d.path == path);
     if (existing >= 0) {
@@ -410,7 +416,7 @@ class ShellState extends State<Shell> {
                         KeyedSubtree(
                           key: ObjectKey(d),
                           child: switch (d.kind) {
-                            DocKind.writer => WriterPage(doc: d),
+                            DocKind.writer => WriterPage(doc: d, onNewDocument: (h) => adoptDocument(h, DocKind.writer)),
                             DocKind.calc => CalcPage(doc: d),
                             DocKind.math => MathPage(doc: d),
                           },

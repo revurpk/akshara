@@ -208,3 +208,61 @@ fn opening_files_is_defensive() {
     std::fs::write(&txt, b"line 1\nline 2").expect("write");
     assert_eq!(ok(json!({"op": "open", "path": txt}))["kind"], json!("writer"));
 }
+
+#[test]
+fn writer_page_setup_header_footer_and_templates() {
+    let doc = ok(json!({"op": "new", "kind": "writer"}))["doc"].clone();
+    let sizes = ok(json!({"op": "paper_sizes"}));
+    let card = sizes["papers"].as_array().expect("papers").iter().find(|p| p["id"] == "card_4x6").expect("card").clone();
+    ok(json!({"op": "writer.page", "doc": doc, "width": card["width"], "height": card["height"], "margin": 18}));
+    assert_eq!(err_kind(json!({"op": "writer.page", "doc": doc, "width": 5, "height": 5, "margin": 0})), "invalid");
+    ok(json!({"op": "writer.header", "doc": doc, "on": true}));
+    let h0 = json!({"area": "header", "block": 0});
+    ok(json!({"op": "writer.set_text", "doc": doc, "para": h0, "text": "Page "}));
+    ok(json!({"op": "writer.field", "doc": doc, "para": h0, "at": 5, "field": "page_number"}));
+    assert_eq!(err_kind(json!({"op": "writer.field", "doc": doc, "para": h0, "at": 0, "field": "date"})), "invalid");
+    assert_eq!(err_kind(json!({"op": "writer.para", "doc": doc, "para": {"area": "side", "block": 0}})), "invalid");
+    let split = ok(json!({"op": "writer.split", "doc": doc, "para": h0, "at": 0}));
+    assert_eq!(split, json!({"area": "header", "block": 1}));
+    ok(json!({"op": "writer.spacing", "doc": doc, "para": {"block": 0}, "indent": 36, "space_before": 6}));
+    let got = ok(json!({"op": "writer.get", "doc": doc}));
+    assert_eq!(got["paper"], json!("card_4x6"));
+    assert_eq!(got["header"][1]["runs"][1]["field"], json!("page_number"));
+    assert_eq!(got["footer"], json!([]));
+    assert_eq!(got["blocks"][0]["indent"], json!(36.0));
+    ok(json!({"op": "writer.letterhead", "doc": doc, "name": "Name", "details": "Street", "contact": "mail", "align": "center", "color": "#1f5fbf"}));
+    let got = ok(json!({"op": "writer.get", "doc": doc}));
+    assert_eq!(got["header"][0]["runs"][0]["text"], json!("Name"));
+    assert_eq!(got["footer"][0]["align"], json!("center"));
+
+    let env = ok(json!({"op": "new_envelope", "width": 623.6, "height": 311.8, "margin": 28.8, "sender": "Me", "recipient": "You\nTown"}));
+    let got = ok(json!({"op": "writer.get", "doc": env["doc"]}));
+    assert_eq!(got["paper"], json!("env_dl"));
+    assert_eq!(got["blocks"].as_array().map(Vec::len), Some(3));
+    let cards = ok(json!({"op": "new_index_cards", "width": 360, "height": 216, "margin": 18, "count": 2}));
+    assert_eq!(ok(json!({"op": "writer.get", "doc": cards["doc"]}))["blocks"][2]["type"], json!("page_break"));
+    let labels = ok(json!({"op": "new_labels", "sheet": "5160", "text": "A\nB", "same": true}));
+    let got = ok(json!({"op": "writer.get", "doc": labels["doc"]}));
+    assert_eq!(got["blocks"][0]["borders"], json!(false));
+    assert_eq!(err_kind(json!({"op": "new_labels", "sheet": "nope"})), "invalid");
+}
+
+#[test]
+fn pdf_is_built_from_page_images() {
+    // A 1×1 white PNG, written by hand: signature, IHDR, IDAT, IEND.
+    let png: &[u8] = &[
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
+        0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC,
+        0xCC, 0x59, 0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+    ];
+    let page = temp("page1.png");
+    std::fs::write(&page, png).expect("write png");
+    let out = temp("out.pdf");
+    let n = ok(json!({"op": "pdf_from_pngs", "pngs": [page, page], "width": 595.28, "height": 841.89, "path": out, "title": "T"}));
+    assert_eq!(n, json!(2));
+    let pdf = std::fs::read(&out).expect("pdf");
+    assert!(pdf.starts_with(b"%PDF-1.4"));
+    assert_eq!(err_kind(json!({"op": "pdf_from_pngs", "pngs": [out], "width": 100, "height": 100, "path": temp("x.pdf")})), "invalid");
+    assert_eq!(err_kind(json!({"op": "pdf_from_pngs", "pngs": [], "width": 100, "height": 100, "path": temp("y.pdf")})), "invalid");
+}

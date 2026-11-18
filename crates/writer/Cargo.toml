@@ -9,6 +9,8 @@ rust-version.workspace = true
 [dependencies]
 office-odf.workspace = true
 serde.workspace = true
+png.workspace = true
+flate2.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

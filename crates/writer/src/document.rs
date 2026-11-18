@@ -14,12 +14,61 @@ pub const MAX_UNDO: usize = 200;
 pub const MAX_BLOCKS: usize = 1_000_000;
 /// Longest paragraph in bytes.
 pub const MAX_PARAGRAPH_LEN: usize = 4 << 20;
+/// Most paragraphs the header and footer may hold together.
+pub const MAX_AREA_PARAGRAPHS: usize = 1000;
+/// Most labels [`Document::labels`] creates from a list.
+pub const MAX_LABELS: usize = 10_000;
+/// Indent step of [`Document::indent`] for non-list paragraphs (half an inch).
+pub const INDENT_STEP: f32 = 36.0;
 
-/// Address of a paragraph: a top-level block, or a paragraph inside a table
-/// cell.
+fn ensure_final_paragraph(blocks: &mut Vec<Block>) {
+    // Always end with a paragraph so the cursor has somewhere to go.
+    if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
+        blocks.push(Block::Paragraph(Paragraph::plain("")));
+    }
+}
+
+fn toggle_area(area: &mut Vec<Paragraph>, on: bool) {
+    if !on {
+        area.clear();
+    } else if area.is_empty() {
+        area.push(Paragraph::plain(""));
+    }
+}
+
+fn normalized_area(mut paragraphs: Vec<Paragraph>) -> Vec<Paragraph> {
+    paragraphs.truncate(MAX_AREA_PARAGRAPHS / 2);
+    for p in &mut paragraphs {
+        p.kind = p.kind.normalized();
+        p.normalize();
+    }
+    paragraphs
+}
+
+fn paper_page(id: &str, margin: f32) -> PageSetup {
+    let paper = paper_size(id).copied().unwrap_or(PAPER_SIZES[0]);
+    PageSetup { width: paper.width, height: paper.height, margin }
+}
+
+/// Part of the document a paragraph belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Area {
+    /// The main text.
+    #[default]
+    Body,
+    /// The page header, repeated at the top of every page.
+    Header,
+    /// The page footer, repeated at the bottom of every page.
+    Footer,
+}
+
+/// Address of a paragraph: a top-level block, a paragraph inside a table
+/// cell, or a paragraph of the page header or footer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ParaRef {
-    /// Top-level block index.
+    /// Which part of the document.
+    pub area: Area,
+    /// Top-level block index (body), or paragraph index (header, footer).
     pub block: usize,
     /// For tables: `(row, column, paragraph index in the cell)`.
     pub cell: Option<(usize, usize, usize)>,
@@ -28,12 +77,22 @@ pub struct ParaRef {
 impl ParaRef {
     /// A top-level paragraph.
     pub const fn top(block: usize) -> ParaRef {
-        ParaRef { block, cell: None }
+        ParaRef { area: Area::Body, block, cell: None }
     }
 
     /// A paragraph inside a table cell.
     pub const fn in_cell(block: usize, row: usize, col: usize, para: usize) -> ParaRef {
-        ParaRef { block, cell: Some((row, col, para)) }
+        ParaRef { area: Area::Body, block, cell: Some((row, col, para)) }
+    }
+
+    /// A paragraph of the page header.
+    pub const fn header(para: usize) -> ParaRef {
+        ParaRef { area: Area::Header, block: para, cell: None }
+    }
+
+    /// A paragraph of the page footer.
+    pub const fn footer(para: usize) -> ParaRef {
+        ParaRef { area: Area::Footer, block: para, cell: None }
     }
 }
 
@@ -54,16 +113,25 @@ enum EditKind {
     Other,
 }
 
+/// Everything an edit can change (and undo restores).
+#[derive(Debug, Clone, PartialEq, Default)]
+struct Content {
+    blocks: Vec<Block>,
+    /// Header paragraphs; empty when the document has no header.
+    header: Vec<Paragraph>,
+    /// Footer paragraphs; empty when the document has no footer.
+    footer: Vec<Paragraph>,
+    page: PageSetup,
+}
+
 /// A text document with editing history.
 #[derive(Debug, Clone)]
 pub struct Document {
-    blocks: Vec<Block>,
+    c: Content,
     /// Document metadata.
     pub meta: Metadata,
-    /// Page setup.
-    pub page: PageSetup,
-    undo: Vec<(Vec<Block>, EditKind)>,
-    redo: Vec<Vec<Block>>,
+    undo: Vec<(Content, EditKind)>,
+    redo: Vec<Content>,
     last_edit: EditKind,
     modified: bool,
 }
@@ -105,8 +173,15 @@ fn split_runs_at(p: &mut Paragraph, at: usize) -> Result<usize> {
     }
 }
 
-/// Attributes in effect at an offset (those of the character before it).
+/// Attributes new text at an offset takes: those of the character before
+/// it, without its field (typing next to a field makes plain text).
 fn attrs_at(p: &Paragraph, at: usize) -> TextAttrs {
+    let mut a = attrs_before(p, at);
+    a.field = None;
+    a
+}
+
+fn attrs_before(p: &Paragraph, at: usize) -> TextAttrs {
     let mut pos = 0;
     let mut current = p.runs.first().map(|r| r.attrs.clone()).unwrap_or_default();
     for run in &p.runs {
@@ -145,9 +220,8 @@ impl Document {
             blocks.push(Block::Paragraph(Paragraph::plain("")));
         }
         Document {
-            blocks,
+            c: Content { blocks, ..Default::default() },
             meta: Metadata::default(),
-            page: PageSetup::default(),
             undo: Vec::new(),
             redo: Vec::new(),
             last_edit: EditKind::Other,
@@ -155,9 +229,226 @@ impl Document {
         }
     }
 
+    /// Sets the page and the header and footer paragraphs of a freshly built
+    /// document, without recording an undo step. An invalid page is
+    /// replaced by the default.
+    pub fn with_page(mut self, page: PageSetup, header: Vec<Paragraph>, footer: Vec<Paragraph>) -> Self {
+        self.c.page = if page.is_valid() { page } else { PageSetup::default() };
+        self.c.header = normalized_area(header);
+        self.c.footer = normalized_area(footer);
+        self
+    }
+
+    /// A new envelope: the page is the envelope, the sender's address sits in
+    /// the top-left corner and the recipient's address in the lower right
+    /// part. Addresses are given one line per `\n`.
+    pub fn envelope(page: PageSetup, sender: &str, recipient: &str) -> Self {
+        let page = if page.is_valid() { page } else { paper_page("env_dl", 0.4 * 72.0) };
+        let lines = |text: &str| -> Vec<String> {
+            text.replace("\r\n", "\n")
+                .split(['\n', '\r'])
+                .map(|l| l.chars().filter(|c| !c.is_control() || *c == '\t').take(500).collect::<String>())
+                .take(20)
+                .collect()
+        };
+        let mut blocks = Vec::new();
+        let sender_lines: Vec<String> = lines(sender).into_iter().filter(|l| !l.trim().is_empty()).collect();
+        let small = TextAttrs { size: Some(10.0), ..Default::default() };
+        for line in &sender_lines {
+            blocks.push(Block::Paragraph(Paragraph {
+                runs: vec![Run { text: line.clone(), attrs: small.clone() }],
+                ..Default::default()
+            }));
+        }
+        // The recipient block starts a little below the middle of the
+        // envelope and a little left of its centre.
+        let inner_h = page.height - 2.0 * page.margin;
+        let used = sender_lines.len() as f32 * 14.0;
+        let top = (page.height * 0.45 - page.margin - used).clamp(12.0, (inner_h - used).max(12.0));
+        let indent = ((page.width * 0.45) - page.margin).max(0.0);
+        let mut recipient_lines = lines(recipient);
+        while recipient_lines.last().is_some_and(|l| l.trim().is_empty()) && recipient_lines.len() > 1 {
+            recipient_lines.pop();
+        }
+        if recipient_lines.is_empty() {
+            recipient_lines.push(String::new());
+        }
+        for (i, line) in recipient_lines.into_iter().enumerate() {
+            blocks.push(Block::Paragraph(Paragraph {
+                indent,
+                space_before: if i == 0 { top } else { 0.0 },
+                ..Paragraph::plain(line)
+            }));
+        }
+        Document::from_blocks(blocks).with_page(page, Vec::new(), Vec::new())
+    }
+
+    /// A new set of `count` index cards (1..=500), one per page, each with a
+    /// heading line for the card's title and a body paragraph.
+    pub fn index_cards(page: PageSetup, count: usize) -> Self {
+        let page = if page.is_valid() { page } else { paper_page("card_3x5", 0.25 * 72.0) };
+        let mut blocks = Vec::new();
+        for i in 0..count.clamp(1, 500) {
+            if i > 0 {
+                blocks.push(Block::PageBreak);
+            }
+            blocks.push(Block::Paragraph(Paragraph::with_kind(ParaKind::Heading { level: 2 }, "")));
+            blocks.push(Block::Paragraph(Paragraph::plain("")));
+        }
+        Document::from_blocks(blocks).with_page(page, Vec::new(), Vec::new())
+    }
+
+    /// A new sheet (or sheets) of labels.
+    ///
+    /// `text` holds the label contents, one line per `\n`. With `same`, every
+    /// label of one sheet gets the whole text; otherwise the text is a list of
+    /// records separated by blank lines, one label each, using as many sheets
+    /// as needed (at most [`MAX_LABELS`] labels).
+    pub fn labels(sheet: &LabelSheet, text: &str, same: bool) -> Result<Self> {
+        if !sheet.is_valid() {
+            return Err(bad("the label sheet does not fit its paper"));
+        }
+        let paper = paper_size(sheet.paper).ok_or_else(|| bad("unknown paper size"))?;
+        let text = text.replace("\r\n", "\n").replace('\r', "\n");
+        let clean = |l: &str| l.chars().filter(|c| !c.is_control() || *c == '\t').take(500).collect::<String>();
+        let records: Vec<Vec<String>> = if same {
+            vec![text.trim_matches('\n').split('\n').map(clean).take(40).collect()]
+        } else {
+            text.split("\n\n")
+                .map(|r| r.trim_matches('\n'))
+                .filter(|r| !r.trim().is_empty())
+                .map(|r| r.split('\n').map(clean).take(40).collect())
+                .take(MAX_LABELS)
+                .collect()
+        };
+        let per_sheet = sheet.per_sheet();
+        let total = if same { per_sheet } else { records.len().max(1) };
+        // The page margin is the smaller of the two offsets; the rest of the
+        // offset and the gaps between labels become spacer rows / columns.
+        let margin = sheet.top.min(sheet.left).min(paper.width.min(paper.height) / 3.0);
+        let mut col_widths = Vec::new();
+        let mut label_cols = Vec::new(); // column index of each label column
+        if sheet.left - margin > 0.5 {
+            col_widths.push(sheet.left - margin);
+        }
+        for c in 0..sheet.cols {
+            label_cols.push(col_widths.len());
+            col_widths.push(sheet.width);
+            if c + 1 < sheet.cols && sheet.h_pitch - sheet.width > 0.5 {
+                col_widths.push(sheet.h_pitch - sheet.width);
+            }
+        }
+        let mut row_heights = Vec::new();
+        let mut label_rows = Vec::new();
+        if sheet.top - margin > 0.5 {
+            row_heights.push(sheet.top - margin);
+        }
+        for r in 0..sheet.rows {
+            label_rows.push(row_heights.len());
+            row_heights.push(sheet.height);
+            if r + 1 < sheet.rows && sheet.v_pitch - sheet.height > 0.5 {
+                row_heights.push(sheet.v_pitch - sheet.height);
+            }
+        }
+        let lines = records.iter().map(Vec::len).max().unwrap_or(1).max(1) as f32;
+        let size = ((sheet.height - 8.0) / (lines * 1.4)).clamp(6.0, 11.0).floor();
+        let attrs = TextAttrs { size: Some(size), ..Default::default() };
+        // Empty lines stay plain: formatting of empty text is not saved.
+        let line = |l: &String| match l.is_empty() {
+            true => Paragraph::plain(""),
+            false => Paragraph { runs: vec![Run { text: l.clone(), attrs: attrs.clone() }], ..Default::default() },
+        };
+        let label = |record: Option<&Vec<String>>| -> Vec<Paragraph> {
+            match record {
+                Some(lines) if !lines.is_empty() => lines.iter().map(line).collect(),
+                _ => vec![Paragraph::plain("")],
+            }
+        };
+        let mut blocks = Vec::new();
+        let mut index = 0;
+        while index < total {
+            if !blocks.is_empty() {
+                blocks.push(Block::PageBreak);
+            }
+            let mut rows = vec![vec![vec![Paragraph::plain("")]; col_widths.len()]; row_heights.len()];
+            for &r in &label_rows {
+                for &c in &label_cols {
+                    if index < total {
+                        rows[r][c] = label(if same { records.first() } else { records.get(index) });
+                        index += 1;
+                    }
+                }
+            }
+            blocks.push(Block::Table(Table {
+                rows,
+                col_widths: col_widths.clone(),
+                row_heights: row_heights.clone(),
+                borders: false,
+            }));
+        }
+        let page = PageSetup { width: paper.width, height: paper.height, margin };
+        Ok(Document::from_blocks(blocks).with_page(page, Vec::new(), Vec::new()))
+    }
+
+    /// Replaces the header and footer with a letterhead (one undo step).
+    pub fn set_letterhead(&mut self, l: &Letterhead) -> Result<()> {
+        let lines = |text: &str| -> Vec<String> {
+            text.replace("\r\n", "\n")
+                .split(['\n', '\r'])
+                .map(|x| x.chars().filter(|c| !c.is_control() || *c == '\t').take(500).collect::<String>())
+                .filter(|x| !x.trim().is_empty())
+                .take(10)
+                .collect()
+        };
+        let para = |text: String, attrs: TextAttrs, align: Align| Paragraph {
+            align,
+            runs: vec![Run { text, attrs }],
+            ..Default::default()
+        };
+        let mut header = Vec::new();
+        let name = l.name.trim();
+        if !name.is_empty() {
+            let attrs = TextAttrs { bold: true, size: Some(20.0), color: l.color, ..Default::default() };
+            header.push(para(name.chars().take(200).collect(), attrs, l.align));
+        }
+        let small = TextAttrs { size: Some(9.0), ..Default::default() };
+        for line in lines(&l.details) {
+            header.push(para(line, small.clone(), l.align));
+        }
+        let tiny = TextAttrs { size: Some(8.0), ..Default::default() };
+        let footer: Vec<Paragraph> =
+            lines(&l.contact).into_iter().map(|line| para(line, tiny.clone(), Align::Center)).collect();
+        self.edit(EditKind::Other, |c| {
+            c.header = normalized_area(header);
+            c.footer = normalized_area(footer);
+            Ok(())
+        })
+    }
+
     /// All blocks.
     pub fn blocks(&self) -> &[Block] {
-        &self.blocks
+        &self.c.blocks
+    }
+
+    /// Page setup.
+    pub fn page(&self) -> &PageSetup {
+        &self.c.page
+    }
+
+    /// Header paragraphs (empty when there is no header).
+    pub fn header(&self) -> &[Paragraph] {
+        &self.c.header
+    }
+
+    /// Footer paragraphs (empty when there is no footer).
+    pub fn footer(&self) -> &[Paragraph] {
+        &self.c.footer
+    }
+
+    /// Number of pages as given by forced page breaks (the core does not lay
+    /// out text, so overflowing pages are not counted).
+    pub fn page_count(&self) -> usize {
+        1 + self.c.blocks.iter().filter(|b| matches!(b, Block::PageBreak)).count()
     }
 
     /// Whether the document changed since it was created, loaded or saved.
@@ -173,7 +464,7 @@ impl Document {
     /// The plain text of the whole document, paragraphs separated by `\n`.
     pub fn plain_text(&self) -> String {
         let mut out = Vec::new();
-        for block in &self.blocks {
+        for block in &self.c.blocks {
             match block {
                 Block::Paragraph(p) => out.push(p.text()),
                 Block::Table(t) => {
@@ -203,7 +494,7 @@ impl Document {
             stats.chars += text.chars().count();
             stats.chars_no_spaces += text.chars().filter(|c| !c.is_whitespace()).count();
         };
-        for block in &self.blocks {
+        for block in &self.c.blocks {
             match block {
                 Block::Paragraph(p) => count(p),
                 Block::Table(t) => {
@@ -214,13 +505,19 @@ impl Document {
                 Block::PageBreak => {}
             }
         }
-        stats.tables = self.blocks.iter().filter(|b| matches!(b, Block::Table(_))).count();
+        stats.tables = self.c.blocks.iter().filter(|b| matches!(b, Block::Table(_))).count();
         stats
     }
 
     /// The paragraph at `r`.
     pub fn paragraph(&self, r: ParaRef) -> Result<&Paragraph> {
-        let block = self.blocks.get(r.block).ok_or_else(|| bad(format!("no block {}", r.block)))?;
+        match (r.area, r.cell) {
+            (Area::Body, _) => {}
+            (Area::Header, None) => return self.c.header.get(r.block).ok_or_else(|| bad("no such header paragraph")),
+            (Area::Footer, None) => return self.c.footer.get(r.block).ok_or_else(|| bad("no such footer paragraph")),
+            _ => return Err(bad("headers and footers have no tables")),
+        }
+        let block = self.c.blocks.get(r.block).ok_or_else(|| bad(format!("no block {}", r.block)))?;
         match (block, r.cell) {
             (Block::Paragraph(p), None) => Ok(p),
             (Block::Table(t), Some((row, col, para))) => t
@@ -233,8 +530,14 @@ impl Document {
         }
     }
 
-    fn paragraph_mut(blocks: &mut [Block], r: ParaRef) -> Result<&mut Paragraph> {
-        let block = blocks.get_mut(r.block).ok_or_else(|| bad(format!("no block {}", r.block)))?;
+    fn paragraph_mut(c: &mut Content, r: ParaRef) -> Result<&mut Paragraph> {
+        match (r.area, r.cell) {
+            (Area::Body, _) => {}
+            (Area::Header, None) => return c.header.get_mut(r.block).ok_or_else(|| bad("no such header paragraph")),
+            (Area::Footer, None) => return c.footer.get_mut(r.block).ok_or_else(|| bad("no such footer paragraph")),
+            _ => return Err(bad("headers and footers have no tables")),
+        }
+        let block = c.blocks.get_mut(r.block).ok_or_else(|| bad(format!("no block {}", r.block)))?;
         match (block, r.cell) {
             (Block::Paragraph(p), None) => Ok(p),
             (Block::Table(t), Some((row, col, para))) => t
@@ -249,19 +552,19 @@ impl Document {
 
     // ---- history ----------------------------------------------------------------
 
-    /// Runs `f` on a copy of the blocks; commits and records undo on success,
-    /// leaves the document untouched on error.
-    fn edit(&mut self, kind: EditKind, f: impl FnOnce(&mut Vec<Block>) -> Result<()>) -> Result<()> {
-        let mut blocks = self.blocks.clone();
-        f(&mut blocks)?;
-        if blocks.len() > MAX_BLOCKS {
+    /// Runs `f` on a copy of the content; commits and records undo on
+    /// success, leaves the document untouched on error.
+    fn edit(&mut self, kind: EditKind, f: impl FnOnce(&mut Content) -> Result<()>) -> Result<()> {
+        let mut c = self.c.clone();
+        f(&mut c)?;
+        if c.blocks.len() > MAX_BLOCKS || c.header.len() + c.footer.len() > MAX_AREA_PARAGRAPHS {
             return Err(OdfError::limit("document has too many blocks"));
         }
-        if blocks == self.blocks {
+        if c == self.c {
             return Ok(());
         }
         let coalesce = matches!(kind, EditKind::Typing(_)) && kind == self.last_edit && !self.undo.is_empty();
-        let before = std::mem::replace(&mut self.blocks, blocks);
+        let before = std::mem::replace(&mut self.c, c);
         if !coalesce {
             self.undo.push((before, kind));
             if self.undo.len() > MAX_UNDO {
@@ -288,7 +591,7 @@ impl Document {
     /// one change).
     pub fn undo(&mut self) -> bool {
         let Some((before, _)) = self.undo.pop() else { return false };
-        self.redo.push(std::mem::replace(&mut self.blocks, before));
+        self.redo.push(std::mem::replace(&mut self.c, before));
         self.last_edit = EditKind::Other;
         self.modified = true;
         true
@@ -297,7 +600,7 @@ impl Document {
     /// Re-applies the last undone change.
     pub fn redo(&mut self) -> bool {
         let Some(after) = self.redo.pop() else { return false };
-        self.undo.push((std::mem::replace(&mut self.blocks, after), EditKind::Other));
+        self.undo.push((std::mem::replace(&mut self.c, after), EditKind::Other));
         self.last_edit = EditKind::Other;
         self.modified = true;
         true
@@ -326,12 +629,13 @@ impl Document {
             return Err(bad("range start after end"));
         }
         let text = text.replace("\r\n", "\n").replace('\r', "\n");
-        self.edit(EditKind::Typing(r), |blocks| {
-            let p = Self::paragraph_mut(blocks, r)?;
+        self.edit(EditKind::Typing(r), |c| {
+            let p = Self::paragraph_mut(c, r)?;
             if p.runs.iter().map(|r| r.text.len()).sum::<usize>() + text.len() > MAX_PARAGRAPH_LEN {
                 return Err(OdfError::limit("paragraph is too long"));
             }
-            let inherit = attrs.cloned().unwrap_or_else(|| attrs_at(p, start));
+            let mut inherit = attrs.cloned().unwrap_or_else(|| attrs_at(p, start));
+            inherit.field = None;
             let first = split_runs_at(p, start)?;
             let last = split_runs_at(p, end)?;
             p.runs.drain(first..last);
@@ -380,8 +684,8 @@ impl Document {
                 return Err(bad("only http, https and mailto links are allowed"));
             }
         }
-        self.edit(EditKind::Other, |blocks| {
-            let p = Self::paragraph_mut(blocks, r)?;
+        self.edit(EditKind::Other, |c| {
+            let p = Self::paragraph_mut(c, r)?;
             let first = split_runs_at(p, start)?;
             let last = split_runs_at(p, end)?;
             for run in &mut p.runs[first..last] {
@@ -403,8 +707,8 @@ impl Document {
     /// Returns the address of the new paragraph.
     pub fn split_paragraph(&mut self, r: ParaRef, at: usize) -> Result<ParaRef> {
         let mut new_ref = r;
-        self.edit(EditKind::Other, |blocks| {
-            let p = Self::paragraph_mut(blocks, r)?;
+        self.edit(EditKind::Other, |c| {
+            let p = Self::paragraph_mut(c, r)?;
             let idx = split_runs_at(p, at)?;
             let tail_runs = p.runs.split_off(idx);
             let tail_attrs = tail_runs.first().map(|r| r.attrs.clone()).unwrap_or_else(|| attrs_at(p, at));
@@ -412,24 +716,26 @@ impl Document {
                 ParaKind::Heading { .. } | ParaKind::Title => ParaKind::Normal,
                 other => other,
             };
-            let mut tail = Paragraph { kind: next_kind, align: p.align, runs: tail_runs };
+            let mut tail = Paragraph { kind: next_kind, align: p.align, indent: p.indent, runs: tail_runs, ..Default::default() };
             if tail.runs.is_empty() {
                 tail.runs.push(Run { text: String::new(), attrs: tail_attrs });
             }
             p.normalize();
             tail.normalize();
-            match r.cell {
-                None => {
-                    blocks.insert(r.block + 1, Block::Paragraph(tail));
-                    new_ref = ParaRef::top(r.block + 1);
-                }
-                Some((row, col, para)) => {
-                    if let Block::Table(t) = &mut blocks[r.block] {
+            match (r.area, r.cell) {
+                (Area::Header, _) => c.header.insert(r.block + 1, tail),
+                (Area::Footer, _) => c.footer.insert(r.block + 1, tail),
+                (Area::Body, None) => c.blocks.insert(r.block + 1, Block::Paragraph(tail)),
+                (Area::Body, Some((row, col, para))) => {
+                    if let Block::Table(t) = &mut c.blocks[r.block] {
                         t.rows[row][col].insert(para + 1, tail);
                     }
-                    new_ref = ParaRef::in_cell(r.block, row, col, para + 1);
                 }
             }
+            new_ref = match r.cell {
+                Some((row, col, para)) => ParaRef::in_cell(r.block, row, col, para + 1),
+                None => ParaRef { block: r.block + 1, ..r },
+            };
             Ok(())
         })?;
         Ok(new_ref)
@@ -440,13 +746,20 @@ impl Document {
     /// the join point, or `None` when there is nothing to join with.
     pub fn merge_with_previous(&mut self, r: ParaRef) -> Result<Option<(ParaRef, usize)>> {
         let prev = match r.cell {
+            None if r.area != Area::Body => {
+                self.paragraph(r)?;
+                if r.block == 0 {
+                    return Ok(None);
+                }
+                ParaRef { block: r.block - 1, ..r }
+            }
             None => {
-                if r.block == 0 || !matches!(self.blocks.get(r.block - 1), Some(Block::Paragraph(_))) {
+                if r.block == 0 || !matches!(self.c.blocks.get(r.block - 1), Some(Block::Paragraph(_))) {
                     // Backspace after a table or page break removes a page break,
                     // otherwise does nothing.
-                    if r.block > 0 && matches!(self.blocks.get(r.block - 1), Some(Block::PageBreak)) {
-                        self.edit(EditKind::Other, |blocks| {
-                            blocks.remove(r.block - 1);
+                    if r.block > 0 && matches!(self.c.blocks.get(r.block - 1), Some(Block::PageBreak)) {
+                        self.edit(EditKind::Other, |c| {
+                            c.blocks.remove(r.block - 1);
                             Ok(())
                         })?;
                         return Ok(Some((ParaRef::top(r.block - 1), 0)));
@@ -465,17 +778,23 @@ impl Document {
         };
         let join_at = utf16_len(&self.paragraph(prev)?.text());
         self.paragraph(r)?;
-        self.edit(EditKind::Other, |blocks| {
-            let current = Self::paragraph_mut(blocks, r)?.clone();
-            let p = Self::paragraph_mut(blocks, prev)?;
+        self.edit(EditKind::Other, |c| {
+            let current = Self::paragraph_mut(c, r)?.clone();
+            let p = Self::paragraph_mut(c, prev)?;
             p.runs.extend(current.runs);
             p.normalize();
-            match r.cell {
-                None => {
-                    blocks.remove(r.block);
+            match (r.area, r.cell) {
+                (Area::Header, _) => {
+                    c.header.remove(r.block);
                 }
-                Some((row, col, para)) => {
-                    if let Block::Table(t) = &mut blocks[r.block] {
+                (Area::Footer, _) => {
+                    c.footer.remove(r.block);
+                }
+                (Area::Body, None) => {
+                    c.blocks.remove(r.block);
+                }
+                (Area::Body, Some((row, col, para))) => {
+                    if let Block::Table(t) = &mut c.blocks[r.block] {
                         t.rows[row][col].remove(para);
                     }
                 }
@@ -487,31 +806,99 @@ impl Document {
 
     /// Changes the kind of a paragraph.
     pub fn set_kind(&mut self, r: ParaRef, kind: ParaKind) -> Result<()> {
-        self.edit(EditKind::Other, |blocks| {
-            Self::paragraph_mut(blocks, r)?.kind = kind.normalized();
+        self.edit(EditKind::Other, |c| {
+            Self::paragraph_mut(c, r)?.kind = kind.normalized();
             Ok(())
         })
     }
 
     /// Changes the alignment of a paragraph.
     pub fn set_align(&mut self, r: ParaRef, align: Align) -> Result<()> {
-        self.edit(EditKind::Other, |blocks| {
-            Self::paragraph_mut(blocks, r)?.align = align;
+        self.edit(EditKind::Other, |c| {
+            Self::paragraph_mut(c, r)?.align = align;
             Ok(())
         })
     }
 
     /// Changes the list level of a list paragraph by `delta` (Tab /
-    /// Shift+Tab). Non-list paragraphs are unchanged.
+    /// Shift+Tab); other paragraphs move their left indent by `delta` steps
+    /// of [`INDENT_STEP`] points.
     pub fn indent(&mut self, r: ParaRef, delta: i32) -> Result<()> {
-        self.edit(EditKind::Other, |blocks| {
-            let p = Self::paragraph_mut(blocks, r)?;
+        self.edit(EditKind::Other, |c| {
+            let p = Self::paragraph_mut(c, r)?;
             let shift = |level: u8| (i32::from(level) + delta).clamp(0, 9) as u8;
-            p.kind = match p.kind {
-                ParaKind::Bullet { level } => ParaKind::Bullet { level: shift(level) },
-                ParaKind::Numbered { level } => ParaKind::Numbered { level: shift(level) },
-                other => other,
-            };
+            match p.kind {
+                ParaKind::Bullet { level } => p.kind = ParaKind::Bullet { level: shift(level) },
+                ParaKind::Numbered { level } => p.kind = ParaKind::Numbered { level: shift(level) },
+                _ => {
+                    // Snap to the step grid so odd imported indents line up.
+                    let steps = (p.indent / INDENT_STEP).round() as i32 + delta.clamp(-100, 100);
+                    p.indent = (steps.max(0) as f32 * INDENT_STEP).min(MAX_PARA_SPACING);
+                }
+            }
+            Ok(())
+        })
+    }
+
+    /// Sets the left indent and the space above a paragraph, in points
+    /// (clamped to 0..=[`MAX_PARA_SPACING`]).
+    pub fn set_spacing(&mut self, r: ParaRef, indent: f32, space_before: f32) -> Result<()> {
+        if !indent.is_finite() || !space_before.is_finite() {
+            return Err(bad("spacing must be a finite number"));
+        }
+        self.edit(EditKind::Other, |c| {
+            let p = Self::paragraph_mut(c, r)?;
+            p.indent = indent;
+            p.space_before = space_before;
+            p.normalize();
+            Ok(())
+        })
+    }
+
+    /// Inserts a field at a UTF-16 offset. Its text is the value the field
+    /// has on the first page; the editor computes the real value per page.
+    pub fn insert_field(&mut self, r: ParaRef, at: usize, field: Field) -> Result<()> {
+        let text = match field {
+            Field::PageNumber => "1".to_owned(),
+            Field::PageCount => self.page_count().to_string(),
+        };
+        self.edit(EditKind::Other, |c| {
+            let p = Self::paragraph_mut(c, r)?;
+            let attrs = TextAttrs { field: Some(field), ..attrs_at(p, at) };
+            let idx = split_runs_at(p, at)?;
+            p.runs.insert(idx, Run { text, attrs });
+            p.normalize();
+            Ok(())
+        })
+    }
+
+    // ---- page setup, header and footer ---------------------------------------------
+
+    /// Changes the page size and margins (one undo step).
+    pub fn set_page(&mut self, page: PageSetup) -> Result<()> {
+        if !page.is_valid() {
+            return Err(bad("page size or margins are out of range"));
+        }
+        self.edit(EditKind::Other, |c| {
+            c.page = page;
+            Ok(())
+        })
+    }
+
+    /// Turns the page header on (with one empty paragraph) or off (deleting
+    /// its content).
+    pub fn set_header(&mut self, on: bool) -> Result<()> {
+        self.edit(EditKind::Other, |c| {
+            toggle_area(&mut c.header, on);
+            Ok(())
+        })
+    }
+
+    /// Turns the page footer on (with one empty paragraph) or off (deleting
+    /// its content).
+    pub fn set_footer(&mut self, on: bool) -> Result<()> {
+        self.edit(EditKind::Other, |c| {
+            toggle_area(&mut c.footer, on);
             Ok(())
         })
     }
@@ -520,7 +907,7 @@ impl Document {
 
     /// Inserts a block before index `at` (`at == len` appends).
     pub fn insert_block(&mut self, at: usize, block: Block) -> Result<()> {
-        if at > self.blocks.len() {
+        if at > self.c.blocks.len() {
             return Err(bad("block index out of range"));
         }
         let block = match block {
@@ -535,25 +922,21 @@ impl Document {
             }
             other => other,
         };
-        self.edit(EditKind::Other, |blocks| {
-            blocks.insert(at, block);
-            if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
-                blocks.push(Block::Paragraph(Paragraph::plain("")));
-            }
+        self.edit(EditKind::Other, |c| {
+            c.blocks.insert(at, block);
+            ensure_final_paragraph(&mut c.blocks);
             Ok(())
         })
     }
 
     /// Removes a block. The document always keeps a final paragraph.
     pub fn remove_block(&mut self, at: usize) -> Result<()> {
-        if at >= self.blocks.len() {
+        if at >= self.c.blocks.len() {
             return Err(bad("block index out of range"));
         }
-        self.edit(EditKind::Other, |blocks| {
-            blocks.remove(at);
-            if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
-                blocks.push(Block::Paragraph(Paragraph::plain("")));
-            }
+        self.edit(EditKind::Other, |c| {
+            c.blocks.remove(at);
+            ensure_final_paragraph(&mut c.blocks);
             Ok(())
         })
     }
@@ -561,7 +944,8 @@ impl Document {
     /// Inserts or deletes a table row or column. `count` may be negative to
     /// delete. A table that loses its last row or column is removed.
     pub fn resize_table(&mut self, block: usize, rows: bool, at: usize, count: i32) -> Result<()> {
-        self.edit(EditKind::Other, |blocks| {
+        self.edit(EditKind::Other, |c| {
+            let blocks = &mut c.blocks;
             let Some(Block::Table(t)) = blocks.get_mut(block) else {
                 return Err(bad("block is not a table"));
             };
@@ -575,27 +959,19 @@ impl Document {
                 if (rows && len + n > 10_000) || (!rows && cols + n > 64) {
                     return Err(OdfError::limit("table is too large"));
                 }
-                for _ in 0..n {
-                    if rows {
-                        t.rows.insert(at, vec![vec![Paragraph::plain("")]; cols]);
-                    } else {
-                        for row in &mut t.rows {
-                            row.insert(at, vec![Paragraph::plain("")]);
-                        }
-                    }
+                if rows {
+                    t.insert_rows(at, n);
+                } else {
+                    t.insert_cols(at, n);
                 }
             } else if rows {
-                t.rows.drain(at..at + n);
+                t.delete_rows(at, n);
             } else {
-                for row in &mut t.rows {
-                    row.drain(at..at + n);
-                }
+                t.delete_cols(at, n);
             }
             if t.rows.is_empty() || t.cols() == 0 {
                 blocks.remove(block);
-                if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
-                    blocks.push(Block::Paragraph(Paragraph::plain("")));
-                }
+                ensure_final_paragraph(blocks);
             }
             Ok(())
         })
@@ -603,8 +979,19 @@ impl Document {
 
     // ---- search ---------------------------------------------------------------------
 
+    /// Visits every paragraph: header, body (with table cells), footer.
     fn each_paragraph(&self, f: &mut dyn FnMut(ParaRef, &Paragraph)) {
-        for (b, block) in self.blocks.iter().enumerate() {
+        for (i, p) in self.c.header.iter().enumerate() {
+            f(ParaRef::header(i), p);
+        }
+        self.each_body_paragraph(f);
+        for (i, p) in self.c.footer.iter().enumerate() {
+            f(ParaRef::footer(i), p);
+        }
+    }
+
+    fn each_body_paragraph(&self, f: &mut dyn FnMut(ParaRef, &Paragraph)) {
+        for (b, block) in self.c.blocks.iter().enumerate() {
             match block {
                 Block::Paragraph(p) => f(ParaRef::top(b), p),
                 Block::Table(t) => {
@@ -674,10 +1061,10 @@ impl Document {
             return Ok(0);
         }
         let count = matches.len();
-        self.edit(EditKind::Other, |blocks| {
+        self.edit(EditKind::Other, |c| {
             // Replace back to front so earlier offsets stay valid.
             for m in matches.iter().rev() {
-                let p = Self::paragraph_mut(blocks, m.para)?;
+                let p = Self::paragraph_mut(c, m.para)?;
                 let inherit = attrs_at(p, m.start + 1);
                 let first = split_runs_at(p, m.start)?;
                 let last = split_runs_at(p, m.end)?;

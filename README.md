@@ -9,7 +9,7 @@ LibreOffice. It starts with three applications:
 
 | App | Does | Native format | Also opens / saves |
 |---|---|---|---|
-| **Writer** · लेखक | Word processing | `.odt` | `.txt` · exports `.html`, `.md` |
+| **Writer** · लेखक | Word processing | `.odt` | `.txt` · exports `.html`, `.md`, `.pdf`; prints |
 | **Calc** · गणक | Spreadsheets, 131 functions | `.ods` | `.csv`, `.tsv` |
 | **Math** · गणित | Formula editor (StarMath language) | `.odf` | `.mml` (MathML) |
 

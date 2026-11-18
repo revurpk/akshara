@@ -14,6 +14,7 @@ import 'package:akshara/main.dart';
 import 'package:akshara/math/math_page.dart';
 import 'package:akshara/math/math_view.dart';
 import 'package:akshara/writer/para_field.dart';
+import 'package:akshara/writer/print_preview.dart';
 import 'package:akshara/writer/writer_page.dart';
 
 import 'helpers.dart';
@@ -118,6 +119,88 @@ void main() {
     got = core({'op': 'writer.get', 'doc': doc.handle}) as Map<String, dynamic>;
     expect(got['blocks'][0]['kind'], 'heading');
     expect(doc.modified, true);
+  }, skip: skip != null);
+
+  testWidgets('writer: header and footer repeat on every page with page numbers', (tester) async {
+    final doc = newDoc(DocKind.writer);
+    await tester.pumpWidget(host(WriterPage(doc: doc)));
+    await tester.pumpAndSettle();
+    // Turn the header on from the Page layout menu, type, add a page number.
+    await tester.tap(find.byTooltip('Page layout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Header'));
+    await tester.pumpAndSettle();
+    var got = core({'op': 'writer.get', 'doc': doc.handle}) as Map<String, dynamic>;
+    expect((got['header'] as List).length, 1);
+    final header = find.byKey(const ValueKey('para-header:0'));
+    expect(header, findsOneWidget);
+    await tester.enterText(find.descendant(of: header, matching: find.byType(TextField)), 'Page ');
+    await tester.pumpAndSettle();
+    final headerController = tester.widget<TextField>(find.descendant(of: header, matching: find.byType(TextField))).controller!;
+    headerController.selection = const TextSelection.collapsed(offset: 5);
+    await tester.tap(find.byTooltip('Page layout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Insert page number'));
+    await tester.pumpAndSettle();
+    got = core({'op': 'writer.get', 'doc': doc.handle}) as Map<String, dynamic>;
+    expect(got['header'][0]['runs'][1]['field'], 'page_number');
+
+    // A page break makes a second page whose header shows "Page 2".
+    final body = find.byKey(const ValueKey('para-0'));
+    await tester.tap(find.descendant(of: body, matching: find.byType(TextField)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Insert page break'));
+    await tester.pumpAndSettle();
+    expect(find.text('Page 2', findRichText: true), findsOneWidget);
+
+    // Superscript by keyboard (OpenOffice's Ctrl+Shift+P).
+    final field = find.descendant(of: body, matching: find.byType(TextField));
+    await tester.enterText(field, 'x2');
+    await tester.pumpAndSettle();
+    tester.widget<TextField>(field).controller!.selection = const TextSelection(baseOffset: 1, extentOffset: 2);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyP);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    got = core({'op': 'writer.get', 'doc': doc.handle}) as Map<String, dynamic>;
+    expect(got['blocks'][0]['runs'][1]['superscript'], true);
+  }, skip: skip != null);
+
+  testWidgets('writer: label sheets render and paginate in the print preview', (tester) async {
+    final r = core({'op': 'new_labels', 'sheet': 'l7163', 'text': List.generate(20, (i) => 'Name $i\nTown').join('\n\n'), 'same': false})
+        as Map<String, dynamic>;
+    final doc = OpenDoc(r['doc'] as int, DocKind.writer, null);
+    await tester.pumpWidget(host(WriterPage(doc: doc)));
+    await tester.pumpAndSettle();
+    expect(find.byType(Table), findsNWidgets(2), reason: '14 labels per sheet, 20 labels');
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PrintPreview), findsOneWidget);
+    expect(find.text('2 page(s)'), findsOneWidget);
+    expect(find.descendant(of: find.byType(PrintPreview), matching: find.text('Name 19', findRichText: true)), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  }, skip: skip != null);
+
+  testWidgets('writer: envelope wizard opens the envelope as a new document', (tester) async {
+    final doc = newDoc(DocKind.writer);
+    int? created;
+    await tester.pumpWidget(host(WriterPage(doc: doc, onNewDocument: (h) => created = h)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Page layout'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New envelope…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Recipient address'), 'A. Person\n1 Road');
+    await tester.tap(find.text('Create'));
+    await tester.pumpAndSettle();
+    expect(created, isNotNull);
+    final got = core({'op': 'writer.get', 'doc': created}) as Map<String, dynamic>;
+    expect(got['paper'], 'env_dl');
+    expect(got['blocks'][0]['runs'][0]['text'], 'A. Person');
+    core({'op': 'close', 'doc': created});
   }, skip: skip != null);
 
   testWidgets('calc: typing into the grid enters values and formulas', (tester) async {

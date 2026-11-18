@@ -464,7 +464,9 @@ dependencies = [
 name = "office-writer"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "office-odf",
+ "png",
  "proptest",
  "serde",
  "serde_json",

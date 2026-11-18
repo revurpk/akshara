@@ -33,6 +33,11 @@ Colours are `"#rrggbb"` strings, or `null` to reset.
 |---|---|---|
 | `version` | | `{name, version, odf}` |
 | `new` | `kind`: `writer`/`calc`/`math`, `source?` (math) | `{doc, kind}` |
+| `new_envelope` | `width, height, margin` (points), `sender?, recipient?` (lines separated by `\n`) | `{doc, kind}` |
+| `new_index_cards` | `width, height, margin, count?` (1–500, one card per page) | `{doc, kind}` |
+| `new_labels` | `sheet` (id from `paper_sizes`), `text?`, `same?` (default true: every label gets `text`; false: one label per blank-line separated entry) | `{doc, kind}` |
+| `paper_sizes` | | `{papers: [{id, name, kind: sheet/envelope/card, width, height}], labels: [{id, name, paper, cols, rows, width, height, top, left, h_pitch, v_pitch}]}` |
+| `pdf_from_pngs` | `pngs` (page image paths), `width, height` (page size in points), `path`, `title?` | page count; writes a PDF with one image per page (used for printing) |
 | `open` | `path` (kind from the extension: odt ott txt / ods ots csv tsv / odf otf mml) | `{doc, kind}` |
 | `save` | `doc`, `path` (format from the extension), `sheet?`, `sanitize?` (CSV) | info |
 | `close` | `doc` | `true` if it was open |
@@ -74,7 +79,7 @@ Formats: `{"kind": "general" | "number" (decimals, thousands) | "indian"
 
 | op | arguments | result |
 |---|---|---|
-| `writer.get` | `doc` | `{blocks, page, stats}` |
+| `writer.get` | `doc` | `{blocks, header, footer, page, paper, stats}` (`paper`: id of the matching paper size or `null`) |
 | `writer.para` | `doc, para` | one paragraph |
 | `writer.stats` | `doc` | `{words, chars, chars_no_spaces, paragraphs, tables}` |
 | `writer.set_text` | `doc, para, text` | the core diffs and keeps formatting |
@@ -84,7 +89,12 @@ Formats: `{"kind": "general" | "number" (decimals, thousands) | "indian"
 | `writer.merge` | `doc, para` | `{para, at}` or `null` |
 | `writer.kind` | `doc, para, kind: {kind, level?}` | |
 | `writer.align` | `doc, para, align` | |
-| `writer.indent` | `doc, para, delta` | |
+| `writer.indent` | `doc, para, delta` | list level for list items, else the left indent in steps of 36 pt |
+| `writer.spacing` | `doc, para, indent, space_before` (points) | |
+| `writer.field` | `doc, para, at, field`: `page_number` / `page_count` | |
+| `writer.page` | `doc, width, height, margin` (points) | page size and margin (undoable) |
+| `writer.header` / `writer.footer` | `doc, on` | turns the header / footer on (one empty paragraph) or off |
+| `writer.letterhead` | `doc, name?, details?, contact?, align?, color?` | replaces header (name, address) and footer (contact) |
 | `writer.insert_table` / `writer.insert_page_break` / `writer.remove_block` | `doc, at, rows?, cols?` | |
 | `writer.table` | `doc, block, rows: bool, at, count` (negative deletes) | |
 | `writer.find` | `doc, needle, match_case?` | `[{para, start, end}]` |
@@ -93,11 +103,21 @@ Formats: `{"kind": "general" | "number" (decimals, thousands) | "indian"
 | `writer.export_html` | `doc` | HTML string |
 
 Blocks are serialised as `{"type": "paragraph", "kind": "heading",
-"level": 2, "align": "left", "runs": [{"text": "...", "bold": true}]}`,
-`{"type": "table", "rows": [[[paragraph, ...], ...], ...]}` and
+"level": 2, "align": "left", "indent": 36, "space_before": 12, "runs":
+[{"text": "...", "bold": true}]}` (`indent` and `space_before` omitted when
+zero), `{"type": "table", "rows": [[[paragraph, ...], ...], ...],
+"col_widths": [...], "row_heights": [...], "borders": false}` (sizes in
+points, omitted when automatic; `borders` omitted when true) and
 `{"type": "page_break"}`. Run attributes: `bold italic underline strike code
-superscript subscript color highlight size link`; false and null values are
-omitted.
+superscript subscript color highlight size link field` (`field`:
+`page_number` / `page_count`, the text being its last known value); false
+and null values are omitted. `header` and `footer` are lists of paragraphs
+(empty when absent).
+
+A paragraph address `para` is `{"block": n}` for a top-level paragraph,
+`{"block": n, "cell": [row, column, paragraph]}` inside a table, and
+`{"area": "header" | "footer", "block": n}` for header and footer
+paragraphs.
 
 ## Transliteration (teltools)
 
