@@ -336,4 +336,11 @@ const Map<String, String> orStrings = {
   "Print grid lines": "ଗ୍ରିଡ ରେଖା ମୁଦ୍ରଣ କରନ୍ତୁ",
   "Header and footer": "ଶୀର୍ଷଲେଖ ଓ ପାଦଲେଖ",
   "Sheet name at the top, page number at the bottom": "ଉପରେ ସିଟ ନାମ, ତଳେ ପୃଷ୍ଠା ସଂଖ୍ୟା",
+  "Print range": "ମୁଦ୍ରଣ ପରିସର",
+  "Print range…": "ମୁଦ୍ରଣ ପରିସର…",
+  "Whole used area": "ସମ୍ପୂର୍ଣ୍ଣ ବ୍ୟବହୃତ ଅଞ୍ଚଳ",
+  "Use selection": "ଚୟନ ବ୍ୟବହାର କରନ୍ତୁ",
+  "Rows to repeat": "ପୁନରାବୃତ୍ତ ଧାଡ଼ି",
+  "None": "କିଛି ନାହିଁ",
+  "Clear": "ସଫା କରନ୍ତୁ",
 };

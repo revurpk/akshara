@@ -279,3 +279,16 @@ fn calc_page_setup() {
     assert_eq!(err_kind(json!({"op": "calc.set_page", "doc": doc, "width": 841.89, "height": 595.28, "margin": 36, "scale": 1000})), "invalid");
     assert_eq!(ok(json!({"op": "info", "doc": doc}))["can_undo"], json!(true));
 }
+
+#[test]
+fn calc_print_area() {
+    let doc = ok(json!({"op": "new", "kind": "calc"}))["doc"].clone();
+    assert_eq!(ok(json!({"op": "calc.print_area", "doc": doc, "sheet": 0})), json!({"range": null, "repeat_rows": null}));
+    ok(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "range": "$A$1:$D$20", "repeat_rows": "1:2"}));
+    assert_eq!(ok(json!({"op": "calc.print_area", "doc": doc, "sheet": 0})), json!({"range": "A1:D20", "repeat_rows": "1:2"}));
+    ok(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "range": "", "repeat_rows": "3"}));
+    assert_eq!(ok(json!({"op": "calc.print_area", "doc": doc, "sheet": 0})), json!({"range": null, "repeat_rows": "3"}));
+    assert_eq!(err_kind(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "range": "nonsense"})), "invalid");
+    assert_eq!(err_kind(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "repeat_rows": "0"})), "invalid");
+    assert_eq!(err_kind(json!({"op": "calc.set_print_area", "doc": doc, "sheet": 0, "repeat_rows": "5:2"})), "invalid");
+}

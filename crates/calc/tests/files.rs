@@ -4,8 +4,8 @@
 use office_calc::formula::{parse, Expr, Syntax};
 use office_calc::{
     load, load_csv, load_ods, save_ods, sheet_to_csv, CellAddr, HAlign, NumberFormat, Range, StylePatch, Value,
-    Workbook,
- PageSetup,};
+    Workbook, PageSetup, PrintArea, Axis,
+};
 use office_odf::{ns, Limits, OdfError, Package, Rgb};
 use proptest::prelude::*;
 
@@ -470,4 +470,61 @@ fn page_setup_is_read_from_openoffice_files() {
     let page = wb.page();
     assert!((page.margin - 28.35).abs() < 0.1);
     assert_eq!((page.scale, page.grid, page.header_footer, page.fit_width), (80, false, false, false));
+}
+
+#[test]
+fn print_range_and_title_rows_round_trip() {
+    let mut wb = Workbook::new();
+    wb.set_input(0, a("A1"), "Name").expect("input");
+    wb.set_input(0, a("A2"), "Unit").expect("input");
+    wb.set_input(0, a("B9"), "x").expect("input");
+    let area = PrintArea { range: Some(Range::parse("A1:D20").expect("range")), repeat_rows: Some((0, 1)) };
+    wb.set_print_area(0, area).expect("area");
+    assert!(wb.set_print_area(0, PrintArea { repeat_rows: Some((5, 2)), ..area }).is_err());
+    assert!(wb.set_print_area(0, PrintArea { repeat_rows: Some((0, 500)), ..area }).is_err());
+    let bytes = save_ods(&wb).expect("save");
+    let back = load_ods(&bytes, &Limits::default()).expect("load");
+    assert_eq!(*back.sheet(0).expect("sheet").print_area(), area);
+    // The cells are unchanged by the header-rows wrapper.
+    assert_eq!(back.display(0, a("A2")), "Unit");
+    assert_eq!(back.display(0, a("B9")), "x");
+    // Title rows below the data, on an otherwise empty part of the sheet.
+    let mut wb = Workbook::new();
+    wb.set_input(0, a("A1"), "top").expect("input");
+    wb.set_print_area(0, PrintArea { range: None, repeat_rows: Some((4, 5)) }).expect("area");
+    let back = load_ods(&save_ods(&wb).expect("save"), &Limits::default()).expect("load");
+    assert_eq!(back.sheet(0).expect("sheet").print_area().repeat_rows, Some((4, 5)));
+    assert!(wb.undo());
+    assert_eq!(*wb.sheet(0).expect("sheet").print_area(), PrintArea::default());
+}
+
+#[test]
+fn print_range_follows_inserted_and_deleted_rows_and_columns() {
+    let mut wb = Workbook::new();
+    let area = PrintArea { range: Some(Range::parse("B2:D10").expect("range")), repeat_rows: Some((1, 2)) };
+    wb.set_print_area(0, area).expect("area");
+    wb.insert(0, Axis::Row, 0, 2).expect("insert rows");
+    let got = *wb.sheet(0).expect("sheet").print_area();
+    assert_eq!(got.range.map(|r| r.to_a1()), Some("B4:D12".into()));
+    assert_eq!(got.repeat_rows, Some((3, 4)));
+    wb.delete(0, Axis::Col, 1, 2).expect("delete columns B:C");
+    assert_eq!(wb.sheet(0).expect("sheet").print_area().range.map(|r| r.to_a1()), Some("B4:B12".into()));
+    wb.delete(0, Axis::Row, 3, 2).expect("delete the title rows");
+    let got = *wb.sheet(0).expect("sheet").print_area();
+    assert_eq!(got.repeat_rows, None);
+    assert_eq!(got.range.map(|r| r.to_a1()), Some("B4:B10".into()));
+    assert!(wb.undo());
+    assert_eq!(wb.sheet(0).expect("sheet").print_area().repeat_rows, Some((3, 4)));
+}
+
+#[test]
+fn print_ranges_are_read_from_openoffice_files() {
+    let body = "<table:table table:name=\"Data\" table:print-ranges=\"$Data.$A$3:.$C$40 $Data.$E$1:.$F$2\">\
+        <table:table-header-rows><table:table-row><table:table-cell office:value-type=\"string\"><text:p>H</text:p></table:table-cell></table:table-row></table:table-header-rows>\
+        <table:table-row><table:table-cell/></table:table-row></table:table>";
+    let wb = load_ods(&ods_with(body, ""), &Limits::default()).expect("load");
+    let area = *wb.sheet(0).expect("sheet").print_area();
+    assert_eq!(area.range.map(|r| r.to_a1()), Some("A3:C40".into()));
+    assert_eq!(area.repeat_rows, Some((0, 0)));
+    assert_eq!(wb.display(0, a("A1")), "H");
 }

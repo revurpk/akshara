@@ -336,4 +336,11 @@ const Map<String, String> taStrings = {
   "Print grid lines": "கட்டக் கோடுகளை அச்சிடு",
   "Header and footer": "தலைப்பும் அடிக்குறிப்பும்",
   "Sheet name at the top, page number at the bottom": "மேலே தாளின் பெயர், கீழே பக்க எண்",
+  "Print range": "அச்சு வரம்பு",
+  "Print range…": "அச்சு வரம்பு…",
+  "Whole used area": "பயன்படுத்திய முழுப் பகுதி",
+  "Use selection": "தேர்வைப் பயன்படுத்து",
+  "Rows to repeat": "மீண்டும் வரும் கிடைவரிசைகள்",
+  "None": "ஏதுமில்லை",
+  "Clear": "அழி",
 };

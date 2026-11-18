@@ -336,4 +336,11 @@ const Map<String, String> hiStrings = {
   "Print grid lines": "ग्रिड रेखाएँ मुद्रित करें",
   "Header and footer": "शीर्षलेख और पादलेख",
   "Sheet name at the top, page number at the bottom": "ऊपर शीट का नाम, नीचे पृष्ठ संख्या",
+  "Print range": "मुद्रण श्रेणी",
+  "Print range…": "मुद्रण श्रेणी…",
+  "Whole used area": "पूरा प्रयुक्त क्षेत्र",
+  "Use selection": "चयन का उपयोग करें",
+  "Rows to repeat": "दोहराई जाने वाली पंक्तियाँ",
+  "None": "कोई नहीं",
+  "Clear": "साफ़ करें",
 };

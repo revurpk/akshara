@@ -336,4 +336,11 @@ const Map<String, String> bnStrings = {
   "Print grid lines": "গ্রিড লাইন মুদ্রণ করুন",
   "Header and footer": "শীর্ষলেখ ও পাদলেখ",
   "Sheet name at the top, page number at the bottom": "উপরে শিটের নাম, নিচে পৃষ্ঠা নম্বর",
+  "Print range": "মুদ্রণ পরিসর",
+  "Print range…": "মুদ্রণ পরিসর…",
+  "Whole used area": "সম্পূর্ণ ব্যবহৃত এলাকা",
+  "Use selection": "নির্বাচন ব্যবহার করুন",
+  "Rows to repeat": "পুনরাবৃত্ত সারি",
+  "None": "কিছু না",
+  "Clear": "মুছুন",
 };

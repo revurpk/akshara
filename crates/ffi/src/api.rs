@@ -6,7 +6,7 @@
 //! See `docs/ffi-protocol.md` for the full list of operations.
 
 use office_calc::{self as calc, Axis, CellAddr, HAlign, NumberFormat, Range, StylePatch, Workbook};
-use office_calc::PageSetup as CalcPage;
+use office_calc::{PageSetup as CalcPage, PrintArea};
 use office_indic::Script;
 use office_math::Formula;
 use office_odf::{read_file_limited, write_file_atomic, Limits, OdfError, Rgb};
@@ -154,6 +154,26 @@ fn align_arg(s: &str) -> R<Align> {
         "right" => Ok(Align::Right),
         "justify" => Ok(Align::Justify),
         other => Err(bad(format!("unknown alignment '{other}'"))),
+    }
+}
+
+/// Parses rows to repeat: `1`, `1:2` or `$1:$2` (1-based) to 0-based rows.
+fn parse_rows(text: &str) -> R<(u32, u32)> {
+    let row = |p: &str| -> R<u32> {
+        p.trim()
+            .trim_start_matches('$')
+            .parse::<u32>()
+            .ok()
+            .filter(|n| *n >= 1)
+            .map(|n| n - 1)
+            .ok_or_else(|| bad(format!("invalid rows '{text}'")))
+    };
+    match text.split_once(':') {
+        Some((a, b)) => Ok((row(a)?, row(b)?)),
+        None => {
+            let r = row(text)?;
+            Ok((r, r))
+        }
     }
 }
 
@@ -690,6 +710,25 @@ impl Registry {
                 Ok(Value::Null)
             }
             "calc.functions" => Ok(json!(calc::eval::FUNCTION_NAMES)),
+            "calc.print_area" => {
+                let sheet = a.usize("sheet")?;
+                let area = *self.calc(&a)?.sheet(sheet)?.print_area();
+                Ok(json!({
+                    "range": area.range.map(|r| r.to_a1()),
+                    "repeat_rows": area.repeat_rows.map(|(x, y)| if x == y { format!("{}", x + 1) } else { format!("{}:{}", x + 1, y + 1) }),
+                }))
+            }
+            "calc.set_print_area" => {
+                let sheet = a.usize("sheet")?;
+                let text = |key: &str| a.opt_str(key).map(str::trim).filter(|t| !t.is_empty());
+                let range = match text("range") {
+                    Some(t) => Some(Range::parse(&t.replace('$', "")).filter(Range::is_valid).ok_or_else(|| bad(format!("invalid range '{t}'")))?),
+                    None => None,
+                };
+                let repeat_rows = text("repeat_rows").map(parse_rows).transpose()?;
+                self.calc(&a)?.set_print_area(sheet, PrintArea { range, repeat_rows })?;
+                Ok(Value::Null)
+            }
             "calc.page" => {
                 let p = *self.calc(&a)?.page();
                 Ok(json!({

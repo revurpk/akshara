@@ -34,7 +34,7 @@ const a4Width = 595.28, a4Height = 841.89;
 
 /// A piece of content that is never split across pages.
 class PrintUnit {
-  PrintUnit(this.build, {this.newSheet = false, this.section});
+  PrintUnit(this.build, {this.newSheet = false, this.section, this.group, this.repeatRow = false});
 
   /// Builds the unit at 1 logical pixel per point; `first` is true at the
   /// top of a page (tables then repeat their top border).
@@ -45,6 +45,14 @@ class PrintUnit {
 
   /// What the unit belongs to (a Calc sheet name), for headers.
   final String? section;
+
+  /// Repeat group: pages that start inside the group begin with the
+  /// group's units from [PrintJob.repeats] (title rows).
+  final String? group;
+
+  /// This unit is one of its group's repeated rows, printed in place (a
+  /// page starting with it needs no copy of the repeated rows).
+  final bool repeatRow;
 }
 
 /// What to print. Sizes are in points.
@@ -58,6 +66,7 @@ class PrintJob {
     this.footer,
     this.paper,
     this.title,
+    this.repeats = const {},
   });
 
   final double width;
@@ -73,6 +82,10 @@ class PrintJob {
   /// Paper size id from the core (`a4`, `env_dl`...), or null if custom.
   final String? paper;
   final String? title;
+
+  /// Units printed at the top of every page of a group (see
+  /// [PrintUnit.group]).
+  final Map<String, List<PrintUnit>> repeats;
 }
 
 /// Shows the print preview. With [pdfOnly] the action is "Export as PDF".
@@ -105,8 +118,23 @@ class PrintPreview extends StatefulWidget {
 class _PrintPreviewState extends State<PrintPreview> {
   late PrintJob _job = widget.job;
   late bool _landscape = _job.width > _job.height;
-  List<PrintUnit> get _all => _job.units;
+  /// Body units followed by the repeated units of every group; pages hold
+  /// indices into this list.
+  late List<PrintUnit> _all = _flatten(_job);
+  late Map<String, List<int>> _repeatIndex = _indexRepeats(_job);
   late List<GlobalKey> _unitKeys = List.generate(_all.length, (_) => GlobalKey());
+
+  static List<PrintUnit> _flatten(PrintJob job) => [...job.units, for (final r in job.repeats.values) ...r];
+
+  static Map<String, List<int>> _indexRepeats(PrintJob job) {
+    final out = <String, List<int>>{};
+    var i = job.units.length;
+    for (final e in job.repeats.entries) {
+      out[e.key] = [for (var k = 0; k < e.value.length; k++) i + k];
+      i += e.value.length;
+    }
+    return out;
+  }
   final _headerKey = GlobalKey();
   final _footerKey = GlobalKey();
 
@@ -158,18 +186,31 @@ class _PrintPreviewState extends State<PrintPreview> {
     final headerH = src.header == null ? 0.0 : _heightOf(_headerKey) + areaGap;
     final footerH = src.footer == null ? 0.0 : _heightOf(_footerKey) + areaGap;
     final body = (src.height - 2 * src.margin - headerH - footerH).clamp(36.0, double.infinity);
-    final pages = <List<int>>[[]];
-    var used = 0.0;
-    for (var i = 0; i < _all.length; i++) {
+    final pages = <List<int>>[];
+    var used = 0.0, bodyUnits = 0;
+    void startPage(PrintUnit first) {
+      pages.add([]);
+      used = 0;
+      bodyUnits = 0;
+      // Repeated rows first, unless the page starts with them anyway or
+      // they would leave too little room.
+      final repeat = first.group == null || first.repeatRow ? null : _repeatIndex[first.group];
+      if (repeat == null || repeat.isEmpty) return;
+      final h = repeat.fold<double>(0, (a, k) => a + _heightOf(_unitKeys[k]));
+      if (h > body * 0.6) return;
+      pages.last.addAll(repeat);
+      used = h;
+    }
+
+    final count = _job.units.length;
+    for (var i = 0; i < count; i++) {
       final h = _heightOf(_unitKeys[i]);
-      final full = pages.last.isNotEmpty && used + h > body + 0.5;
-      if (_all[i].newSheet || full) {
-        pages.add([]);
-        used = 0;
-      }
+      if (i == 0 || _all[i].newSheet || (bodyUnits > 0 && used + h > body + 0.5)) startPage(_all[i]);
       pages.last.add(i);
       used += h;
+      bodyUnits++;
     }
+    if (pages.isEmpty) pages.add([]);
     setState(() {
       _pages = pages;
       _bodyHeight = body;
@@ -184,6 +225,8 @@ class _PrintPreviewState extends State<PrintPreview> {
     setState(() {
       _landscape = landscape;
       _job = reorient(landscape);
+      _all = _flatten(_job);
+      _repeatIndex = _indexRepeats(_job);
       _unitKeys = List.generate(_all.length, (_) => GlobalKey());
       _pages = null;
     });

@@ -67,6 +67,8 @@ Math `odf`, `mml`. Only native formats clear the "modified" flag.
 | `calc.add_sheet` / `calc.rename_sheet` / `calc.remove_sheet` | `doc, name? / sheet, name / sheet` | |
 | `calc.col_width` | `doc, sheet, col, width` (points, `null` = default) | |
 | `calc.functions` | | list of function names |
+| `calc.print_area` | `doc, sheet` | `{range, repeat_rows}`: e.g. `"A1:D20"`, `"1:2"` (1-based rows), or `null` |
+| `calc.set_print_area` | `doc, sheet, range?, repeat_rows?` | print range (`null`/empty = used area) and rows repeated on every page (`1`, `1:2`; `null`/empty = none); undoable |
 | `calc.page` | `doc` | `{width, height, margin, scale, fit_width, grid, header_footer, paper}` (points; `scale` in percent; `paper`: matching paper size id or `null`) |
 | `calc.set_page` | `doc, width, height, margin, scale?, fit_width?, grid?, header_footer?` | page setup for printing, all sheets (undoable) |
 

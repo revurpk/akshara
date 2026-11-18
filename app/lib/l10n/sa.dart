@@ -336,4 +336,11 @@ const Map<String, String> saStrings = {
   "Print grid lines": "जालरेखाः मुद्रयतु",
   "Header and footer": "शीर्षलेखः पादलेखश्च",
   "Sheet name at the top, page number at the bottom": "उपरि पत्रनाम, अधः पृष्ठाङ्कः",
+  "Print range": "मुद्रणपरिधिः",
+  "Print range…": "मुद्रणपरिधिः…",
+  "Whole used area": "सम्पूर्णं प्रयुक्तक्षेत्रम्",
+  "Use selection": "चयनम् उपयुङ्क्ताम्",
+  "Rows to repeat": "पुनरावर्तनीयाः पङ्क्तयः",
+  "None": "किमपि न",
+  "Clear": "निर्मलीकरोतु",
 };

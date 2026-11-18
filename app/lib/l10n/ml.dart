@@ -336,4 +336,11 @@ const Map<String, String> mlStrings = {
   "Print grid lines": "ഗ്രിഡ് വരകൾ അച്ചടിക്കുക",
   "Header and footer": "തലക്കുറിപ്പും അടിക്കുറിപ്പും",
   "Sheet name at the top, page number at the bottom": "മുകളിൽ ഷീറ്റിന്റെ പേര്, താഴെ പേജ് നമ്പർ",
+  "Print range": "അച്ചടി പരിധി",
+  "Print range…": "അച്ചടി പരിധി…",
+  "Whole used area": "ഉപയോഗിച്ച മുഴുവൻ ഭാഗം",
+  "Use selection": "തിരഞ്ഞെടുപ്പ് ഉപയോഗിക്കുക",
+  "Rows to repeat": "ആവർത്തിക്കുന്ന വരികൾ",
+  "None": "ഒന്നുമില്ല",
+  "Clear": "മായ്ക്കുക",
 };

@@ -266,6 +266,61 @@ void main() {
     await tester.pumpAndSettle();
   }, skip: skip != null);
 
+  testWidgets('print preview repeats title rows at the top of every page', (tester) async {
+    Widget row(String text) => SizedBox(height: 100, child: Text(text));
+    final job = PrintJob(
+      width: a4Width,
+      height: a4Height,
+      margin: 50,
+      units: [
+        PrintUnit((p, n, f) => row('TITLE'), group: 'g', repeatRow: true),
+        for (var i = 0; i < 20; i++) PrintUnit((p, n, f) => row('row $i'), group: 'g'),
+      ],
+      repeats: {'g': [PrintUnit((p, n, f) => row('TITLE'))]},
+    );
+    await tester.pumpWidget(host(Builder(builder: (context) {
+      return TextButton(onPressed: () => showPrintPreview(context, job), child: const Text('go'));
+    })));
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    // 742 pt of text height: 7 rows per page; the title takes one of them
+    // on every page, so 21 units need 4 pages, each starting with TITLE.
+    expect(find.text('4 page(s)'), findsOneWidget);
+    expect(find.descendant(of: find.byType(PrintPreview), matching: find.text('TITLE')), findsNWidgets(4));
+    expect(find.descendant(of: find.byType(PrintPreview), matching: find.text('row 19')), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('calc: the print range dialog limits what is printed', (tester) async {
+    final doc = newDoc(DocKind.calc);
+    core({'op': 'calc.paste', 'doc': doc.handle, 'sheet': 0, 'cell': 'A1', 'rows': [
+      ['Name', 'Value'],
+      for (var r = 1; r < 120; r++) ['n$r', '$r'],
+    ]});
+    await tester.pumpWidget(host(CalcPage(doc: doc)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 page(s)'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Print range…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Print range'), 'A1:B30');
+    await tester.enterText(find.widgetWithText(TextField, 'Rows to repeat'), '1');
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    final area = core({'op': 'calc.print_area', 'doc': doc.handle, 'sheet': 0}) as Map<String, dynamic>;
+    expect(area, {'range': 'A1:B30', 'repeat_rows': '1'});
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 page(s)'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  }, skip: skip != null);
+
   testWidgets('math: print preview shows the formula on one page', (tester) async {
     final r = core({'op': 'new', 'kind': 'math', 'source': 'x = {-b +- sqrt{b^2 - 4ac}} over {2a}'}) as Map<String, dynamic>;
     final doc = OpenDoc(r['doc'] as int, DocKind.math, null);

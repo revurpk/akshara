@@ -336,4 +336,11 @@ const Map<String, String> knStrings = {
   "Print grid lines": "ಗ್ರಿಡ್ ಗೆರೆಗಳನ್ನು ಮುದ್ರಿಸಿ",
   "Header and footer": "ಶಿರೋಲೇಖ ಮತ್ತು ಅಡಿಟಿಪ್ಪಣಿ",
   "Sheet name at the top, page number at the bottom": "ಮೇಲೆ ಹಾಳೆಯ ಹೆಸರು, ಕೆಳಗೆ ಪುಟ ಸಂಖ್ಯೆ",
+  "Print range": "ಮುದ್ರಣ ವ್ಯಾಪ್ತಿ",
+  "Print range…": "ಮುದ್ರಣ ವ್ಯಾಪ್ತಿ…",
+  "Whole used area": "ಬಳಸಿದ ಸಂಪೂರ್ಣ ಪ್ರದೇಶ",
+  "Use selection": "ಆಯ್ಕೆಯನ್ನು ಬಳಸಿ",
+  "Rows to repeat": "ಪುನರಾವರ್ತಿಸುವ ಸಾಲುಗಳು",
+  "None": "ಯಾವುದೂ ಇಲ್ಲ",
+  "Clear": "ತೆರವುಗೊಳಿಸಿ",
 };

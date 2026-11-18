@@ -1,7 +1,8 @@
-// What Calc prints: every non-empty sheet as a grid of its used cells, laid
-// out by the workbook's page setup (`calc.page`): paper, margin, scale or
-// fit to page width, grid lines, header (sheet name) and footer (page
-// number).
+// What Calc prints: every non-empty sheet as a grid of its cells (its print
+// range, or else its used area), laid out by the workbook's page setup
+// (`calc.page`): paper, margin, scale or fit to page width, grid lines,
+// header (sheet name) and footer (page number). A sheet's title rows are
+// repeated at the top of each of its pages.
 //
 // Columns keep their widths; columns that do not fit the page width continue
 // on the following pages (top to bottom, then right, like OpenOffice). Cells
@@ -32,7 +33,12 @@ class _Sheet {
   final Map<int, Map<int, Map<String, dynamic>>> rows = {}; // row -> col -> cell
   final Map<String, dynamic> styles = {};
   final Map<int, double> widths = {};
-  int nRows = 0, nCols = 0;
+
+  /// Printed rows and columns (first inclusive, end exclusive).
+  int firstRow = 0, endRow = 0, firstCol = 0, endCol = 0;
+
+  /// Rows repeated on every page (first, last), or null.
+  (int, int)? repeat;
 
   /// Print scale of this sheet.
   double scale = 1;
@@ -43,10 +49,35 @@ class _Sheet {
   double width(int col) => (widths[col] ?? _defaultWidthPt) * scale;
   double get rowHeight => _rowHeightPt * scale;
   double get fontSize => _fontPt * scale;
-  double get totalWidth => List<double>.generate(nCols, width).fold(0, (a, b) => a + b);
+  double get totalWidth {
+    var w = 0.0;
+    for (var c = firstCol; c < endCol; c++) {
+      w += width(c);
+    }
+    return w;
+  }
 }
 
 /// Reads the used part of every sheet from the core.
+/// Parses `A1` into (row, column), 0-based.
+(int, int)? _cell(String a1) {
+  final m = RegExp(r'^([A-Za-z]+)(\d+)$').firstMatch(a1.trim());
+  if (m == null) return null;
+  var col = 0;
+  for (final ch in m.group(1)!.toUpperCase().codeUnits) {
+    col = col * 26 + (ch - 64);
+  }
+  return (int.parse(m.group(2)!) - 1, col - 1);
+}
+
+/// Parses rows such as `1` or `1:2` (1-based) into (first, last), 0-based.
+(int, int)? _rows(String? text) {
+  if (text == null) return null;
+  final parts = text.split(':');
+  final a = int.tryParse(parts.first), b = int.tryParse(parts.last);
+  return a == null || b == null ? null : (a - 1, b - 1);
+}
+
 List<_Sheet> _readSheets(int doc) {
   final out = <_Sheet>[];
   final sheets = core({'op': 'calc.sheets', 'doc': doc}) as List<dynamic>;
@@ -54,11 +85,27 @@ List<_Sheet> _readSheets(int doc) {
     final sheet = _Sheet((sheets[i] as Map<String, dynamic>)['name'] as String);
     var first = core({'op': 'calc.view', 'doc': doc, 'sheet': i, 'row': 0, 'col': 0, 'rows': 1, 'cols': 1}) as Map<String, dynamic>;
     final used = first['used'] as Map<String, dynamic>?;
-    if (used == null) continue;
-    sheet.nRows = (used['rows'] as int).clamp(0, maxPrintRows);
-    sheet.nCols = used['cols'] as int;
-    for (var row = 0; row < sheet.nRows; row += 500) {
-      for (var col = 0; col < sheet.nCols; col += 200) {
+    final area = core({'op': 'calc.print_area', 'doc': doc, 'sheet': i}) as Map<String, dynamic>;
+    final range = (area['range'] as String?)?.split(':');
+    final start = range == null ? null : _cell(range.first), end = range == null ? null : _cell(range.last);
+    if (start != null && end != null) {
+      sheet.firstRow = start.$1;
+      sheet.endRow = end.$1 + 1;
+      sheet.firstCol = start.$2;
+      sheet.endCol = end.$2 + 1;
+    } else if (used != null) {
+      sheet.endRow = used['rows'] as int;
+      sheet.endCol = used['cols'] as int;
+    } else {
+      continue;
+    }
+    sheet.endRow = sheet.endRow.clamp(0, sheet.firstRow + maxPrintRows);
+    sheet.repeat = _rows(area['repeat_rows'] as String?);
+    // Read the printed rows and the title rows.
+    final readFrom = sheet.repeat == null ? sheet.firstRow : (sheet.repeat!.$1 < sheet.firstRow ? sheet.repeat!.$1 : sheet.firstRow);
+    final readTo = sheet.repeat == null ? sheet.endRow : (sheet.repeat!.$2 + 1 > sheet.endRow ? sheet.repeat!.$2 + 1 : sheet.endRow);
+    for (var row = readFrom; row < readTo; row += 500) {
+      for (var col = sheet.firstCol; col < sheet.endCol; col += 200) {
         first = core({'op': 'calc.view', 'doc': doc, 'sheet': i, 'row': row, 'col': col, 'rows': 500, 'cols': 200})
             as Map<String, dynamic>;
         for (final c in (first['cells'] as List<dynamic>).cast<Map<String, dynamic>>()) {
@@ -68,7 +115,7 @@ List<_Sheet> _readSheets(int doc) {
         (first['widths'] as Map<String, dynamic>).forEach((k, v) => sheet.widths[int.parse(k)] = (v as num).toDouble());
       }
     }
-    if (sheet.rows.isNotEmpty) out.add(sheet);
+    if (sheet.rows.isNotEmpty || start != null) out.add(sheet);
   }
   return out;
 }
@@ -82,7 +129,10 @@ PrintJob calcPrintJob(int doc, {String? title}) {
   final fit = page['fit_width'] == true;
   final scale = (page['scale'] as num).toDouble() / 100;
   final units = <PrintUnit>[];
-  for (final sheet in _readSheets(doc)) {
+  final repeats = <String, List<PrintUnit>>{};
+  final sheets = _readSheets(doc);
+  for (var si = 0; si < sheets.length; si++) {
+    final sheet = sheets[si];
     sheet.grid = page['grid'] == true;
     // Fit to width only ever shrinks.
     final natural = sheet.totalWidth;
@@ -90,7 +140,7 @@ PrintJob calcPrintJob(int doc, {String? title}) {
     // Column bands that fit the page width.
     final bands = <List<int>>[[]];
     var used = 0.0;
-    for (var c = 0; c < sheet.nCols; c++) {
+    for (var c = sheet.firstCol; c < sheet.endCol; c++) {
       final w = sheet.width(c);
       if (bands.last.isNotEmpty && used + w > body + 0.5) {
         bands.add([]);
@@ -99,16 +149,31 @@ PrintJob calcPrintJob(int doc, {String? title}) {
       bands.last.add(c);
       used += w;
     }
-    for (final band in bands) {
+    for (var bi = 0; bi < bands.length; bi++) {
+      final band = bands[bi];
       // Text in the last used column may spill into the free page width.
       final bandWidth = band.fold<double>(0, (a, c) => a + sheet.width(c));
-      final spill = identical(band, bands.last) ? (body - bandWidth).clamp(0.0, body) : 0.0;
-      for (var r = 0; r < sheet.nRows; r++) {
+      final spill = bi == bands.length - 1 ? (body - bandWidth).clamp(0.0, body) : 0.0;
+      final group = '$si:$bi';
+      final repeat = sheet.repeat;
+      if (repeat != null) {
+        repeats[group] = [
+          for (var r = repeat.$1; r <= repeat.$2; r++)
+            PrintUnit(
+              (page, pages, first) => _RowView(sheet: sheet, row: r, cols: band, topLine: first, spill: spill),
+              section: sheet.name,
+            ),
+        ];
+      }
+      for (var r = sheet.firstRow; r < sheet.endRow; r++) {
         final row = r;
         units.add(PrintUnit(
-          (page, pages, first) => _RowView(sheet: sheet, row: row, cols: band, topLine: first || row == 0, spill: spill),
-          newSheet: row == 0 && units.isNotEmpty,
+          (page, pages, first) =>
+              _RowView(sheet: sheet, row: row, cols: band, topLine: first || row == sheet.firstRow, spill: spill),
+          newSheet: row == sheet.firstRow && units.isNotEmpty,
           section: sheet.name,
+          group: group,
+          repeatRow: repeat != null && row >= repeat.$1 && row <= repeat.$2,
         ));
       }
     }
@@ -123,6 +188,7 @@ PrintJob calcPrintJob(int doc, {String? title}) {
     header: headerFooter ? (n, pages, section) => Text(section ?? '', textAlign: TextAlign.center, style: grey) : null,
     footer: headerFooter ? (n, pages, section) => Text('$n / $pages', textAlign: TextAlign.center, style: grey) : null,
     paper: page['paper'] as String?,
+    repeats: repeats,
     title: title,
   );
 }

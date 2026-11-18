@@ -43,7 +43,7 @@ pub use format::NumberFormat;
 pub use ods::{load_ods, save_ods};
 pub use value::{ErrorKind, Value};
 pub use workbook::{
-    is_valid_sheet_name, Axis, Cell, CellStyle, Content, HAlign, PageSetup, Sheet, StylePatch, Workbook, MAX_BULK_CELLS,
+    is_valid_sheet_name, Axis, Cell, CellStyle, Content, HAlign, PageSetup, PrintArea, Sheet, StylePatch, Workbook, MAX_BULK_CELLS,
     MAX_CELL_TEXT, MAX_SHEETS, MAX_UNDO,
 };
 

@@ -136,11 +136,47 @@ pub struct Sheet {
     /// Explicit column widths in points.
     pub col_widths: BTreeMap<u32, f32>,
     max_col: u32,
+    print: PrintArea,
+}
+
+/// What part of a sheet is printed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PrintArea {
+    /// The print range; `None` prints the used part of the sheet.
+    pub range: Option<Range>,
+    /// Rows (first, last; 0-based) repeated at the top of every page.
+    pub repeat_rows: Option<(u32, u32)>,
+}
+
+/// Where the span `a..=b` ends up after inserting (`insert`) or deleting
+/// `count` rows/columns at `at`; `None` when it is deleted completely.
+fn shift_span(a: u32, b: u32, at: u32, count: u32, insert: bool, max: u32) -> Option<(u32, u32)> {
+    if insert {
+        let move_by = |v: u32| if v >= at { v.saturating_add(count) } else { v };
+        let (na, nb) = (move_by(a), move_by(b).min(max - 1));
+        return (na < max).then_some((na, nb));
+    }
+    if b < at {
+        Some((a, b))
+    } else if a >= at + count {
+        Some((a - count, b - count))
+    } else if a >= at && b < at + count {
+        None
+    } else {
+        let na = if a < at { a } else { at };
+        let nb = if b >= at + count { b - count } else { at - 1 };
+        Some((na, nb))
+    }
 }
 
 impl Sheet {
     fn new(name: String) -> Self {
-        Sheet { name, cells: BTreeMap::new(), col_widths: BTreeMap::new(), max_col: 0 }
+        Sheet { name, cells: BTreeMap::new(), col_widths: BTreeMap::new(), max_col: 0, print: PrintArea::default() }
+    }
+
+    /// What part of the sheet is printed.
+    pub fn print_area(&self) -> &PrintArea {
+        &self.print
     }
 
     /// The cell at `addr`, if it has content or a style.
@@ -198,6 +234,7 @@ enum UndoEntry {
     Snapshot { before: Vec<Sheet>, after: Vec<Sheet> },
     Width { sheet: u32, col: u32, before: Option<f32>, after: Option<f32> },
     Page { before: PageSetup, after: PageSetup },
+    Print { sheet: u32, before: PrintArea, after: PrintArea },
 }
 
 /// How the workbook is printed (the default page style, used by every
@@ -695,6 +732,35 @@ impl Workbook {
         Ok(())
     }
 
+    /// Sets the print range and the repeated rows of a sheet (one undo
+    /// step). The range must be valid and the rows in order.
+    pub fn set_print_area(&mut self, sheet: usize, area: PrintArea) -> Result<()> {
+        self.sheet(sheet)?;
+        if let Some(r) = area.range {
+            self.check(sheet, r)?;
+        }
+        if let Some((first, last)) = area.repeat_rows {
+            if first > last || last >= MAX_ROWS || last - first >= 100 {
+                return Err(bad("rows to repeat must be at most 100 rows in order"));
+            }
+        }
+        let before = self.sheets[sheet].print;
+        if before != area {
+            self.sheets[sheet].print = area;
+            self.push_undo(UndoEntry::Print { sheet: sheet as u32, before, after: area });
+        }
+        Ok(())
+    }
+
+    /// Print settings of a freshly loaded sheet (no undo step; invalid
+    /// values are dropped).
+    pub(crate) fn load_print_area(&mut self, sheet: usize, area: PrintArea) {
+        if let Some(sh) = self.sheets.get_mut(sheet) {
+            sh.print.range = area.range.filter(|r| r.is_valid() && r.end.row < MAX_ROWS && r.end.col < MAX_COLS);
+            sh.print.repeat_rows = area.repeat_rows.filter(|(a, b)| a <= b && *b < MAX_ROWS && b - a < 100);
+        }
+    }
+
     /// Sets the page setup of a freshly loaded workbook (no undo step).
     pub(crate) fn set_loaded_page(&mut self, page: PageSetup) {
         if page.is_valid() {
@@ -876,6 +942,21 @@ impl Workbook {
             self.sheets[sheet].col_widths =
                 widths.into_iter().filter_map(|(col, w)| shift(col).map(|c| (c, w))).collect();
         }
+        // The print range and repeated rows follow the rows and columns.
+        let print = &mut self.sheets[sheet].print;
+        if let Some(r) = print.range {
+            print.range = match axis {
+                Axis::Row => shift_span(r.start.row, r.end.row, at, count, insert, max)
+                    .map(|(a, b)| Range::new(CellAddr::new(a, r.start.col), CellAddr::new(b, r.end.col))),
+                Axis::Col => shift_span(r.start.col, r.end.col, at, count, insert, max)
+                    .map(|(a, b)| Range::new(CellAddr::new(r.start.row, a), CellAddr::new(r.end.row, b))),
+            };
+        }
+        if axis == Axis::Row {
+            if let Some((a, b)) = print.repeat_rows {
+                print.repeat_rows = shift_span(a, b, at, count, insert, max);
+            }
+        }
 
         // 2. Adjust references to the edited sheet in every formula.
         let target_name = self.sheets[sheet].name.to_lowercase();
@@ -997,6 +1078,11 @@ impl Workbook {
                 }
             }
             UndoEntry::Page { before, after } => self.page = if backwards { *before } else { *after },
+            UndoEntry::Print { sheet, before, after } => {
+                if let Some(sh) = self.sheets.get_mut(*sheet as usize) {
+                    sh.print = if backwards { *before } else { *after };
+                }
+            }
         }
     }
 

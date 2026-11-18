@@ -10,7 +10,8 @@ use crate::address::{CellAddr, MAX_COLS, MAX_ROWS};
 use crate::format::{self, format_value, NumberFormat};
 use crate::formula::parse_open_formula;
 use crate::value::Value;
-use crate::workbook::{CellStyle, Content, HAlign, PageSetup, Workbook};
+use crate::address::Range;
+use crate::workbook::{CellStyle, Content, HAlign, PageSetup, PrintArea, Workbook};
 use office_odf::util::{format_length_in, parse_length_pt};
 use office_odf::xml::{Element, Node, XmlWriter};
 use office_odf::{ns, Limits, Metadata, OdfError, Package, Result, Rgb};
@@ -168,6 +169,8 @@ struct Loader<'a> {
     cells_loaded: usize,
     /// Cache of "style id with an implied format applied".
     implied: HashMap<(u32, NumberFormat), u32>,
+    /// Rows inside `table:table-header-rows` of the current table.
+    header_rows: Option<(u32, u32)>,
 }
 
 struct ProtoCell {
@@ -310,11 +313,18 @@ impl Loader<'_> {
                     *col = col.saturating_add(repeat);
                 }
                 "table:table-row" => self.load_row(sheet, child, row)?,
+                "table:table-header-rows" => {
+                    // Rows repeated at the top of every printed page.
+                    let first = *row;
+                    self.load_table_children(sheet, child, row, col)?;
+                    if *row > first && self.header_rows.is_none() {
+                        self.header_rows = Some((first, *row - 1));
+                    }
+                }
                 "table:table-columns"
                 | "table:table-header-columns"
                 | "table:table-column-group"
                 | "table:table-rows"
-                | "table:table-header-rows"
                 | "table:table-row-group" => self.load_table_children(sheet, child, row, col)?,
                 _ => {}
             }
@@ -337,6 +347,7 @@ pub fn load_ods(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
         column_widths: HashMap::new(),
         cells_loaded: 0,
         implied: HashMap::new(),
+        header_rows: None,
     };
 
     if let Some(styles) = content.child("office:automatic-styles") {
@@ -379,7 +390,10 @@ pub fn load_ods(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
     for table in spreadsheet.children_named("table:table") {
         let sheet = loader.wb.push_loaded_sheet(table.attr("table:name").unwrap_or(""))?;
         let (mut row, mut col) = (0u32, 0u32);
+        loader.header_rows = None;
         loader.load_table_children(sheet, table, &mut row, &mut col)?;
+        let range = table.attr("table:print-ranges").and_then(parse_print_range);
+        loader.wb.load_print_area(sheet, PrintArea { range, repeat_rows: loader.header_rows });
     }
 
     let mut wb = loader.wb;
@@ -391,6 +405,31 @@ pub fn load_ods(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
     }
     wb.finish_loading();
     Ok(wb)
+}
+
+/// The first range of a `table:print-ranges` value such as
+/// `$Sheet1.$A$1:.$D$20` or `'My sheet'.A1:'My sheet'.D20` (the sheet
+/// names are ignored: the attribute belongs to its sheet).
+fn parse_print_range(value: &str) -> Option<Range> {
+    let first = value.split_whitespace().next()?;
+    let cell = |part: &str| -> Option<CellAddr> {
+        // Drop the sheet name: everything up to the last dot outside quotes.
+        let mut in_quote = false;
+        let mut start = 0;
+        for (i, c) in part.char_indices() {
+            match c {
+                '\'' => in_quote = !in_quote,
+                '.' if !in_quote => start = i + 1,
+                _ => {}
+            }
+        }
+        CellAddr::parse(&part[start..].replace('$', ""))
+    };
+    let mut parts = first.splitn(2, ':');
+    let a = cell(parts.next()?)?;
+    let b = parts.next().map(cell).unwrap_or(Some(a))?;
+    let r = Range::new(a, b);
+    r.is_valid().then_some(r)
 }
 
 /// The page setup of the default master page ("Default", else the first).
@@ -673,6 +712,11 @@ fn content_xml(wb: &Workbook) -> String {
     w.start("office:body").start("office:spreadsheet");
     for sheet in wb.sheets() {
         w.start("table:table").attr("table:name", &sheet.name);
+        let print = *sheet.print_area();
+        if let Some(r) = print.range {
+            let name = &sheet.name;
+            w.attr("table:print-ranges", &format!("'{name}'.{}:'{name}'.{}", r.start.to_a1(), r.end.to_a1()));
+        }
 
         // Columns: runs of default-width columns between explicit widths.
         let last_col = sheet.used_range().map(|r| r.end.col).unwrap_or(0).max(
@@ -696,42 +740,72 @@ fn content_xml(wb: &Workbook) -> String {
         }
         plain(&mut w, (last_col + 1).saturating_sub(next).max(u32::from(next == 0)));
 
-        // Rows.
-        let mut current_row: Option<u32> = None;
-        let mut next_row = 0u32;
-        let mut next_col = 0u32;
+        // Rows: cells row by row, runs of empty rows collapsed; the rows to
+        // repeat on every printed page are wrapped in table-header-rows.
+        let mut by_row: BTreeMap<u32, Vec<&crate::workbook::Cell>> = BTreeMap::new();
+        let mut cols_of: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         for (addr, cell) in sheet.cells() {
-            if current_row != Some(addr.row) {
-                if current_row.is_some() {
-                    w.end();
+            by_row.entry(addr.row).or_default().push(cell);
+            cols_of.entry(addr.row).or_default().push(addr.col);
+        }
+        let header = print.repeat_rows;
+        let last_row = by_row
+            .keys()
+            .next_back()
+            .copied()
+            .into_iter()
+            .chain(header.map(|(_, b)| b))
+            .max();
+        let mut r = 0u32;
+        let mut in_header = false;
+        if let Some(last) = last_row {
+            while r <= last {
+                if header.is_some_and(|(a, _)| a == r) {
+                    w.start("table:table-header-rows");
+                    in_header = true;
                 }
-                let gap = addr.row - next_row;
-                if gap > 0 {
+                if let (Some(cells), Some(cols)) = (by_row.get(&r), cols_of.get(&r)) {
+                    w.start("table:table-row");
+                    let mut next_col = 0u32;
+                    for (cell, col) in cells.iter().zip(cols) {
+                        let gap = col - next_col;
+                        if gap > 0 {
+                            w.start("table:table-cell");
+                            if gap > 1 {
+                                w.attr("table:number-columns-repeated", &gap.to_string());
+                            }
+                            w.end();
+                        }
+                        write_cell(&mut w, wb, cell);
+                        next_col = col + 1;
+                    }
+                    w.end();
+                    r += 1;
+                } else {
+                    // Empty rows up to the next row with cells or header edge.
+                    let mut stop = by_row.range(r..).next().map(|(k, _)| *k).unwrap_or(last + 1);
+                    if let Some((a, b)) = header {
+                        if r < a {
+                            stop = stop.min(a);
+                        }
+                        if r <= b {
+                            stop = stop.min(b + 1);
+                        }
+                    }
+                    let gap = stop - r;
                     w.start("table:table-row");
                     if gap > 1 {
                         w.attr("table:number-rows-repeated", &gap.to_string());
                     }
                     w.start("table:table-cell").end();
                     w.end();
+                    r = stop;
                 }
-                w.start("table:table-row");
-                current_row = Some(addr.row);
-                next_row = addr.row + 1;
-                next_col = 0;
-            }
-            let gap = addr.col - next_col;
-            if gap > 0 {
-                w.start("table:table-cell");
-                if gap > 1 {
-                    w.attr("table:number-columns-repeated", &gap.to_string());
+                if in_header && header.is_some_and(|(_, b)| r > b) {
+                    w.end();
+                    in_header = false;
                 }
-                w.end();
             }
-            write_cell(&mut w, wb, cell);
-            next_col = addr.col + 1;
-        }
-        if current_row.is_some() {
-            w.end();
         } else {
             w.start("table:table-row").start("table:table-cell").end().end();
         }

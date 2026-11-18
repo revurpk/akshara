@@ -336,4 +336,11 @@ const Map<String, String> teStrings = {
   "Print grid lines": "గ్రిడ్ గీతలు ముద్రించు",
   "Header and footer": "హెడర్ మరియు ఫుటర్",
   "Sheet name at the top, page number at the bottom": "పైన షీట్ పేరు, కింద పేజీ సంఖ్య",
+  "Print range": "ముద్రణ పరిధి",
+  "Print range…": "ముద్రణ పరిధి…",
+  "Whole used area": "వాడిన మొత్తం ప్రాంతం",
+  "Use selection": "ఎంపికను వాడు",
+  "Rows to repeat": "పునరావృతమయ్యే అడ్డు వరుసలు",
+  "None": "ఏదీ లేదు",
+  "Clear": "తుడిచివేయి",
 };

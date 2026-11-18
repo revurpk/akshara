@@ -178,3 +178,90 @@ class _CalcPageSetupState extends State<_CalcPageSetup> {
     );
   }
 }
+
+/// Asks for the print range and the rows to repeat of a sheet. [area] is
+/// the JSON of `calc.print_area`, [selection] the selected range (`B2:D9`).
+/// Returns the arguments for `calc.set_print_area`, or null when cancelled.
+Future<Map<String, Object?>?> showPrintAreaDialog(BuildContext context, Map<String, dynamic> area, String selection) {
+  return showDialog<Map<String, Object?>>(
+    context: context,
+    builder: (_) => _PrintAreaDialog(area: area, selection: selection),
+  );
+}
+
+class _PrintAreaDialog extends StatefulWidget {
+  const _PrintAreaDialog({required this.area, required this.selection});
+  final Map<String, dynamic> area;
+  final String selection;
+
+  @override
+  State<_PrintAreaDialog> createState() => _PrintAreaDialogState();
+}
+
+class _PrintAreaDialogState extends State<_PrintAreaDialog> {
+  late final _range = TextEditingController(text: widget.area['range'] as String? ?? '');
+  late final _rows = TextEditingController(text: widget.area['repeat_rows'] as String? ?? '');
+
+  @override
+  void dispose() {
+    _range.dispose();
+    _rows.dispose();
+    super.dispose();
+  }
+
+  /// The rows of the selection, as `1` or `1:2`.
+  String get _selectionRows {
+    final rows = widget.selection.split(':').map((c) => int.tryParse(c.replaceAll(RegExp('[^0-9]'), '')) ?? 1).toList();
+    final a = rows.first, b = rows.last;
+    return a == b ? '$a' : '${a < b ? a : b}:${a < b ? b : a}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(t('Print range')),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _range,
+                  decoration: InputDecoration(labelText: t('Print range'), hintText: t('Whole used area'), helperText: 'A1:F40'),
+                ),
+              ),
+              TextButton(onPressed: () => setState(() => _range.text = widget.selection), child: Text(t('Use selection'))),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _rows,
+                  decoration: InputDecoration(labelText: t('Rows to repeat'), hintText: t('None'), helperText: '1 · 1:2'),
+                ),
+              ),
+              TextButton(onPressed: () => setState(() => _rows.text = _selectionRows), child: Text(t('Use selection'))),
+            ]),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => setState(() {
+            _range.clear();
+            _rows.clear();
+          }),
+          child: Text(t('Clear')),
+        ),
+        TextButton(onPressed: () => Navigator.pop(context), child: Text(t('Cancel'))),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, <String, Object?>{'range': _range.text.trim(), 'repeat_rows': _rows.text.trim()}),
+          child: Text(t('OK')),
+        ),
+      ],
+    );
+  }
+}

@@ -871,6 +871,7 @@ class CalcPageState extends State<CalcPage> {
           IconButton(tooltip: t('Delete columns'), icon: const Icon(Icons.delete_sweep_outlined), onPressed: () => _structure('calc.delete', 'col')),
           const _Sep(),
           IconButton(tooltip: t('Page setup…'), icon: const Icon(Icons.crop_portrait), onPressed: _pageSetup),
+          IconButton(tooltip: t('Print range…'), icon: const Icon(Icons.highlight_alt), onPressed: _printArea),
           IconButton(tooltip: t('Print (Ctrl+P)'), icon: const Icon(Icons.print_outlined), onPressed: _print),
         ]),
       ),
@@ -884,6 +885,17 @@ class CalcPageState extends State<CalcPage> {
     } on CoreError catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
     }
+  }
+
+  /// Print range and rows to repeat of the current sheet.
+  Future<void> _printArea() async {
+    final sheet = _sheet;
+    final area = _call('calc.print_area', {'sheet': sheet}) as Map<String, dynamic>?;
+    if (area == null) return;
+    final args = await showPrintAreaDialog(context, area, _selectionRange);
+    if (args == null) return;
+    _call('calc.set_print_area', {'sheet': sheet, ...args});
+    widget.doc.refresh();
   }
 
   /// Paper, margin, scale, grid lines, header and footer for printing.
