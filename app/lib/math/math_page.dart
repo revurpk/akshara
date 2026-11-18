@@ -8,7 +8,9 @@ import '../l10n/l10n.dart';
 import '../core/document.dart';
 import '../core/fonts.dart';
 import '../core/native.dart';
+import '../core/print_preview.dart';
 import '../core/translit.dart';
+import 'math_print.dart';
 import 'math_view.dart';
 
 /// Insertable templates: (label shown, StarMath inserted, tooltip).
@@ -198,6 +200,18 @@ class MathPageState extends State<MathPage> {
     if (i >= 0) _source.selection = TextSelection(baseOffset: i, extentOffset: i + 3);
   }
 
+  /// Print preview of the formula at the preview's size, with the system
+  /// print dialog.
+  void _print() {
+    final title = widget.doc.title;
+    final pt = (_previewSize / 1.3333).clamp(10.0, 72.0);
+    showPrintPreview(
+      context,
+      mathPrintJob(_tree, title: title, fontPt: pt),
+      reorient: (landscape) => mathPrintJob(_tree, title: title, fontPt: pt, landscape: landscape),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -224,6 +238,7 @@ class MathPageState extends State<MathPage> {
               IconButton(tooltip: t('Smaller'), icon: const Icon(Icons.zoom_out), onPressed: () => setState(() => _previewSize = (_previewSize - 4).clamp(12, 120))),
               Text('${_previewSize.round()} px'),
               IconButton(tooltip: t('Larger'), icon: const Icon(Icons.zoom_in), onPressed: () => setState(() => _previewSize = (_previewSize + 4).clamp(12, 120))),
+              IconButton(tooltip: t('Print (Ctrl+P)'), icon: const Icon(Icons.print_outlined), onPressed: _print),
               const SizedBox(width: 8),
             ],
           ),
@@ -239,6 +254,8 @@ class MathPageState extends State<MathPage> {
             child: CallbackShortcuts(
               bindings: {
                 const SingleActivator(LogicalKeyboardKey.f4): _nextPlaceholder,
+                const SingleActivator(LogicalKeyboardKey.keyP, control: true): _print,
+                const SingleActivator(LogicalKeyboardKey.keyP, meta: true): _print,
               },
               child: TextField(
                 controller: _source,

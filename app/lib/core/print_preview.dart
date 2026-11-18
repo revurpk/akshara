@@ -1,8 +1,10 @@
-// Print preview, printing and PDF export for Writer.
+// Print preview, printing and PDF export, shared by Writer, Calc and Math.
 //
-// Pages are laid out by Flutter with the same fonts and shaping as the
-// editor: blocks are measured off stage, distributed over pages (tables
-// split between rows), and each page is rasterised at print resolution.
+// An application describes what to print as a [PrintJob]: the page size and
+// a list of units (paragraphs, table rows, sheet rows...) that are never
+// split across pages, plus an optional header and footer. Units are
+// measured off stage, distributed over pages, and each page is rasterised
+// at print resolution, with the same fonts and shaping as on screen.
 // Printing uses the operating system's print dialog (system_print.dart):
 // on Windows the pages are drawn straight to the printer; on Linux and
 // macOS the core wraps the page images into a PDF for GTK's print job or
@@ -16,10 +18,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:material_ui/material_ui.dart';
 
-import '../core/file_dialog.dart';
-import '../core/native.dart';
 import '../l10n/l10n.dart';
-import 'page_view.dart';
+import 'file_dialog.dart';
+import 'native.dart';
 import 'system_print.dart';
 
 /// Print resolution in dots per inch.
@@ -28,108 +29,84 @@ const printDpi = 200.0;
 /// Gap between header / footer and the text, in points (as in the ODT).
 const areaGap = 7.2;
 
-/// What to print: the JSON of `writer.get`.
-class PrintSource {
-  PrintSource({required this.blocks, required this.header, required this.footer, required this.page, this.paper, this.title});
+/// A4 in points, the page of applications without page setup.
+const a4Width = 595.28, a4Height = 841.89;
 
-  final List<dynamic> blocks;
-  final List<Map<String, dynamic>> header;
-  final List<Map<String, dynamic>> footer;
-  final Map<String, dynamic> page;
+/// A piece of content that is never split across pages.
+class PrintUnit {
+  PrintUnit(this.build, {this.newSheet = false, this.section});
 
-  /// Paper size id from the core (`a4`, `env_dl`...), or null if custom.
-  final String? paper;
-  final String? title;
-
-  double get width => (page['width'] as num).toDouble();
-  double get height => (page['height'] as num).toDouble();
-  double get margin => (page['margin'] as num).toDouble();
-}
-
-/// A piece of body content that is never split across pages: a paragraph or
-/// one table row.
-class _Unit {
-  _Unit(this.build, {this.newSheet = false});
-
-  /// Builds the unit; `first` is true at the top of a page (tables then
-  /// repeat their top border).
+  /// Builds the unit at 1 logical pixel per point; `first` is true at the
+  /// top of a page (tables then repeat their top border).
   final Widget Function(int page, int pages, bool first) build;
 
   /// A forced page break comes before this unit.
   final bool newSheet;
+
+  /// What the unit belongs to (a Calc sheet name), for headers.
+  final String? section;
 }
 
-List<_Unit> _units(PrintSource src) {
-  final out = <_Unit>[];
-  final ink = PageInk.print;
-  var breakNext = false;
-  // List numbering continues across the document like in the editor.
-  final paras = <Map<String, dynamic>>[];
-  final labelsAt = <int, int>{};
-  for (var b = 0; b < src.blocks.length; b++) {
-    final block = src.blocks[b] as Map<String, dynamic>;
-    if (block['type'] == 'paragraph') {
-      labelsAt[b] = paras.length;
-      paras.add(block);
-    } else if (block['type'] == 'table') {
-      paras.add(const {'kind': 'normal', 'runs': []});
-    }
-  }
-  final labels = listLabels(paras);
-  for (var b = 0; b < src.blocks.length; b++) {
-    final block = src.blocks[b] as Map<String, dynamic>;
-    switch (block['type']) {
-      case 'page_break':
-        breakNext = true;
-      case 'paragraph':
-        final label = labels[labelsAt[b]!];
-        out.add(_Unit(
-          (page, pages, _) => StaticPara(para: block, scale: 1, ink: ink, label: label, page: page, pages: pages),
-          newSheet: breakNext,
-        ));
-        breakNext = false;
-      case 'table':
-        final rows = (block['rows'] as List<dynamic>).length;
-        for (var r = 0; r < rows; r++) {
-          out.add(_Unit(
-            (page, pages, first) => staticTable(block, 1, ink,
-                rows: [r], drawTopBorder: r == 0 || first, page: page, pages: pages),
-            newSheet: r == 0 && breakNext,
-          ));
-        }
-        breakNext = false;
-    }
-  }
-  return out;
-}
+/// What to print. Sizes are in points.
+class PrintJob {
+  PrintJob({
+    required this.width,
+    required this.height,
+    required this.margin,
+    required this.units,
+    this.header,
+    this.footer,
+    this.paper,
+    this.title,
+  });
 
-Widget _area(List<Map<String, dynamic>> paras, int page, int pages) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: staticParagraphs(paras, 1, PageInk.print, page: page, pages: pages),
-    );
+  final double width;
+  final double height;
+  final double margin;
+  final List<PrintUnit> units;
+
+  /// Header and footer of page `page` of `pages`; `section` is the section
+  /// of the first unit on the page.
+  final Widget Function(int page, int pages, String? section)? header;
+  final Widget Function(int page, int pages, String? section)? footer;
+
+  /// Paper size id from the core (`a4`, `env_dl`...), or null if custom.
+  final String? paper;
+  final String? title;
+}
 
 /// Shows the print preview. With [pdfOnly] the action is "Export as PDF".
-Future<void> showPrintPreview(BuildContext context, PrintSource src, {bool pdfOnly = false}) {
+/// With [reorient], the preview offers a Landscape switch and asks for the
+/// job again in the chosen orientation.
+Future<void> showPrintPreview(
+  BuildContext context,
+  PrintJob job, {
+  bool pdfOnly = false,
+  PrintJob Function(bool landscape)? reorient,
+}) {
   return showDialog<void>(
     context: context,
-    builder: (_) => PrintPreview(source: src, pdfOnly: pdfOnly),
+    // Phones and tablets have no print spooler to talk to: export only.
+    builder: (_) => PrintPreview(job: job, pdfOnly: pdfOnly || Platform.isAndroid || Platform.isIOS, reorient: reorient),
   );
 }
 
 class PrintPreview extends StatefulWidget {
-  const PrintPreview({super.key, required this.source, this.pdfOnly = false});
+  const PrintPreview({super.key, required this.job, this.pdfOnly = false, this.reorient});
 
-  final PrintSource source;
+  final PrintJob job;
   final bool pdfOnly;
+  final PrintJob Function(bool landscape)? reorient;
 
   @override
   State<PrintPreview> createState() => _PrintPreviewState();
 }
 
 class _PrintPreviewState extends State<PrintPreview> {
-  late final List<_Unit> _all = _units(widget.source);
-  late final List<GlobalKey> _unitKeys = List.generate(_all.length, (_) => GlobalKey());
+  late PrintJob _job = widget.job;
+  late bool _landscape = _job.width > _job.height;
+  List<PrintUnit> get _all => _job.units;
+  late List<GlobalKey> _unitKeys = List.generate(_all.length, (_) => GlobalKey());
   final _headerKey = GlobalKey();
   final _footerKey = GlobalKey();
 
@@ -177,9 +154,9 @@ class _PrintPreviewState extends State<PrintPreview> {
   double _heightOf(GlobalKey key) => (key.currentContext?.findRenderObject() as RenderBox?)?.size.height ?? 0;
 
   void _paginate() {
-    final src = widget.source;
-    final headerH = src.header.isEmpty ? 0.0 : _heightOf(_headerKey) + areaGap;
-    final footerH = src.footer.isEmpty ? 0.0 : _heightOf(_footerKey) + areaGap;
+    final src = _job;
+    final headerH = src.header == null ? 0.0 : _heightOf(_headerKey) + areaGap;
+    final footerH = src.footer == null ? 0.0 : _heightOf(_footerKey) + areaGap;
     final body = (src.height - 2 * src.margin - headerH - footerH).clamp(36.0, double.infinity);
     final pages = <List<int>>[[]];
     var used = 0.0;
@@ -200,10 +177,26 @@ class _PrintPreviewState extends State<PrintPreview> {
     });
   }
 
+  /// Switches orientation: a new job, measured again.
+  void _turn(bool landscape) {
+    final reorient = widget.reorient;
+    if (reorient == null || landscape == _landscape) return;
+    setState(() {
+      _landscape = landscape;
+      _job = reorient(landscape);
+      _unitKeys = List.generate(_all.length, (_) => GlobalKey());
+      _pages = null;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _paginate();
+    });
+  }
+
   Widget _page(int index) {
-    final src = widget.source;
+    final src = _job;
     final pages = _pages!;
     final n = pages.length;
+    final section = pages[index].isEmpty ? null : _all[pages[index].first].section;
     return RepaintBoundary(
       key: _pageKeys[index],
       child: Container(
@@ -216,7 +209,7 @@ class _PrintPreviewState extends State<PrintPreview> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (src.header.isNotEmpty) ...[_area(src.header, index + 1, n), const SizedBox(height: areaGap)],
+              if (src.header != null) ...[src.header!(index + 1, n, section), const SizedBox(height: areaGap)],
               SizedBox(
                 height: _bodyHeight,
                 child: ClipRect(
@@ -235,7 +228,7 @@ class _PrintPreviewState extends State<PrintPreview> {
                   ),
                 ),
               ),
-              if (src.footer.isNotEmpty) ...[const SizedBox(height: areaGap), _area(src.footer, index + 1, n)],
+              if (src.footer != null) ...[const SizedBox(height: areaGap), src.footer!(index + 1, n, section)],
             ],
           ),
         ),
@@ -272,10 +265,10 @@ class _PrintPreviewState extends State<PrintPreview> {
       await coreAsync({
         'op': 'pdf_from_pngs',
         'pngs': pngs,
-        'width': widget.source.width,
-        'height': widget.source.height,
+        'width': _job.width,
+        'height': _job.height,
         'path': target,
-        if (widget.source.title != null) 'title': widget.source.title,
+        if (_job.title != null) 'title': _job.title,
       });
     } finally {
       try {
@@ -302,7 +295,7 @@ class _PrintPreviewState extends State<PrintPreview> {
   Future<void> _print() => _run(() async {
         final messenger = ScaffoldMessenger.maybeOf(context);
         final navigator = Navigator.of(context);
-        final src = widget.source;
+        final src = _job;
         final title = src.title ?? 'Akshara';
         if (Platform.isWindows) {
           final result = await printWindows(
@@ -320,7 +313,7 @@ class _PrintPreviewState extends State<PrintPreview> {
           return;
         }
         final dir = Directory.systemTemp.createTempSync('akshara-pdf-');
-        final pdf = '${dir.path}${Platform.pathSeparator}${_safeName(widget.source.title ?? 'document')}.pdf';
+        final pdf = '${dir.path}${Platform.pathSeparator}${_safeName(_job.title ?? 'document')}.pdf';
         await _writePdf(pdf);
         if (_systemDialog) {
           final result = Platform.isMacOS
@@ -333,7 +326,7 @@ class _PrintPreviewState extends State<PrintPreview> {
           return;
         }
         if (_canSpool) {
-          final args = [if (_printer != null) ...['-d', _printer!], '-n', '$_copies', '-t', widget.source.title ?? 'Akshara', pdf];
+          final args = [if (_printer != null) ...['-d', _printer!], '-n', '$_copies', '-t', _job.title ?? 'Akshara', pdf];
           final r = await Process.run('lp', args);
           if (r.exitCode != 0) throw CoreError('io', (r.stderr as String).trim());
           messenger?.showSnackBar(SnackBar(content: Text(t('Sent {n} page(s) to the printer.', {'n': _pageKeys.length}))));
@@ -347,7 +340,7 @@ class _PrintPreviewState extends State<PrintPreview> {
   Future<void> _exportPdf() async {
     final target = await showSaveDialog(
       context,
-      suggestedName: '${_safeName(widget.source.title ?? 'Untitled')}.pdf',
+      suggestedName: '${_safeName(_job.title ?? 'Untitled')}.pdf',
       formats: {'pdf': t('PDF document')},
     );
     if (target == null || !mounted) return;
@@ -361,7 +354,7 @@ class _PrintPreviewState extends State<PrintPreview> {
 
   @override
   Widget build(BuildContext context) {
-    final src = widget.source;
+    final src = _job;
     final theme = Theme.of(context);
     final bodyWidth = src.width - 2 * src.margin;
     return Dialog(
@@ -395,8 +388,8 @@ class _PrintPreviewState extends State<PrintPreview> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            KeyedSubtree(key: _headerKey, child: _area(src.header, 1, 1)),
-                            KeyedSubtree(key: _footerKey, child: _area(src.footer, 1, 1)),
+                            if (src.header != null) KeyedSubtree(key: _headerKey, child: src.header!(1, 1, _all.isEmpty ? null : _all.first.section)),
+                            if (src.footer != null) KeyedSubtree(key: _footerKey, child: src.footer!(1, 1, _all.isEmpty ? null : _all.first.section)),
                             for (var i = 0; i < _all.length; i++)
                               KeyedSubtree(key: _unitKeys[i], child: _all[i].build(1, 1, false)),
                           ],
@@ -446,6 +439,10 @@ class _PrintPreviewState extends State<PrintPreview> {
                 alignment: WrapAlignment.end,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
+                  if (widget.reorient != null) ...[
+                    Text(t('Landscape')),
+                    Switch(value: _landscape, onChanged: _pages == null || _busy ? null : _turn),
+                  ],
                   if (_canSpool) ...[
                     Text(t('Printer')),
                     DropdownButton<String>(

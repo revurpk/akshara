@@ -173,6 +173,7 @@ raised as usual.
 | Sort, fill down / right | toolbar (sort uses the current column) |
 | Rows and columns | insert or delete from the toolbar or the right-click menu; formulas everywhere are adjusted |
 | Sheets | + adds a sheet; right-click a sheet tab to rename or delete it |
+| Print / PDF | Ctrl+P or the printer button: every non-empty sheet, on A4 (portrait or landscape), with the sheet name at the top and page numbers at the bottom; columns that do not fit continue on the next pages. Then your system's print dialog, or *Export as PDF*. |
 
 **What you type is recognised automatically:**
 
@@ -221,7 +222,9 @@ Type a formula on the left in the StarMath language (the same language
 OpenOffice Math uses); the rendering on the right updates as you type.
 Problems are listed under the editor, and clicking one moves the cursor
 there. The menus insert templates whose `<?>` placeholders you fill in;
-**F4** jumps to the next placeholder.
+**F4** jumps to the next placeholder. **Ctrl+P** (or the printer button
+under the rendering) prints the formula at the preview size on an A4
+page, through your system's print dialog, or exports it as PDF.
 
 | You type | Shows |
 |---|---|
@@ -260,8 +263,9 @@ and saved again:
 - Transliteration: Hindi-style dropping of the final inherent vowel
   (`kamal` → कमल) and the nukta letters ज़/फ़ (`z`, `f`) are not part of the
   teltools scheme; type `kamala`, or add a nukta with `^n`.
-- All: printing and PDF export from Calc and Math, password-protected
-  documents (they are refused), and Microsoft Office formats (`.docx`,
-  `.xlsx`).
+- Calc printing: print ranges, repeated title rows, and page setup
+  (always A4); cell borders are drawn as light grid lines.
+- All: password-protected documents (they are refused), and Microsoft
+  Office formats (`.docx`, `.xlsx`).
 
 Keep an original copy when editing complex documents made elsewhere.

@@ -4,8 +4,6 @@
 // multi-line text field whose controller paints the attributed runs; every
 // edit is sent to the core, which owns undo/redo and file I/O.
 
-import 'dart:io' show Platform;
-
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -16,9 +14,10 @@ import '../core/file_dialog.dart';
 import '../core/native.dart';
 import '../core/translit.dart';
 import 'page_dialogs.dart';
+import '../core/print_preview.dart';
 import 'page_view.dart';
 import 'para_field.dart';
-import 'print_preview.dart';
+import 'print_job.dart';
 
 /// Address of a paragraph (top-level block, inside a table cell, or in the
 /// page header / footer).
@@ -537,20 +536,7 @@ class WriterPageState extends State<WriterPage> {
   void _print({bool pdfOnly = false}) {
     final got = _call('writer.get') as Map<String, dynamic>?;
     if (got == null) return;
-    List<Map<String, dynamic>> paras(Object? v) => (v as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-    showPrintPreview(
-      context,
-      PrintSource(
-        blocks: got['blocks'] as List<dynamic>,
-        header: paras(got['header']),
-        footer: paras(got['footer']),
-        page: got['page'] as Map<String, dynamic>,
-        paper: got['paper'] as String?,
-        title: widget.doc.title,
-      ),
-      // Phones and tablets have no print spooler to talk to: export only.
-      pdfOnly: pdfOnly || Platform.isAndroid || Platform.isIOS,
-    );
+    showPrintPreview(context, writerPrintJob(got, title: widget.doc.title), pdfOnly: pdfOnly);
   }
 
   void _tableAction(int block, int row, int col, String action) {

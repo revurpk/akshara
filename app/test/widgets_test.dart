@@ -14,7 +14,7 @@ import 'package:akshara/main.dart';
 import 'package:akshara/math/math_page.dart';
 import 'package:akshara/math/math_view.dart';
 import 'package:akshara/writer/para_field.dart';
-import 'package:akshara/writer/print_preview.dart';
+import 'package:akshara/core/print_preview.dart';
 import 'package:akshara/writer/writer_page.dart';
 
 import 'helpers.dart';
@@ -218,6 +218,43 @@ void main() {
     expect(got['paper'], 'env_dl');
     expect(got['blocks'][0]['runs'][0]['text'], 'A. Person');
     core({'op': 'close', 'doc': created});
+  }, skip: skip != null);
+
+  testWidgets('calc: print preview splits wide sheets and starts each sheet on a new page', (tester) async {
+    final doc = newDoc(DocKind.calc);
+    // 10 columns of 64 pt (640 pt) do not fit the A4 portrait text width
+    // (482 pt) but fit landscape (729 pt).
+    core({'op': 'calc.paste', 'doc': doc.handle, 'sheet': 0, 'cell': 'A1', 'rows': [
+      for (var r = 0; r < 3; r++) [for (var c = 0; c < 10; c++) 'r${r}c$c'],
+    ]});
+    core({'op': 'calc.add_sheet', 'doc': doc.handle, 'name': 'Second'});
+    core({'op': 'calc.set_input', 'doc': doc.handle, 'sheet': 1, 'cell': 'B2', 'text': '=6*7'});
+    await tester.pumpWidget(host(CalcPage(doc: doc)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PrintPreview), findsOneWidget);
+    expect(find.text('3 page(s)'), findsOneWidget);
+    expect(find.text('Second'), findsWidgets, reason: 'sheet name in the header');
+    // Landscape fits all 10 columns: one page per sheet.
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(find.text('2 page(s)'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+  }, skip: skip != null);
+
+  testWidgets('math: print preview shows the formula on one page', (tester) async {
+    final r = core({'op': 'new', 'kind': 'math', 'source': 'x = {-b +- sqrt{b^2 - 4ac}} over {2a}'}) as Map<String, dynamic>;
+    final doc = OpenDoc(r['doc'] as int, DocKind.math, null);
+    await tester.pumpWidget(host(MathPage(doc: doc)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Print (Ctrl+P)'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 page(s)'), findsOneWidget);
+    expect(find.descendant(of: find.byType(PrintPreview), matching: find.byType(MathView)), findsWidgets);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
   }, skip: skip != null);
 
   testWidgets('calc: typing into the grid enters values and formulas', (tester) async {

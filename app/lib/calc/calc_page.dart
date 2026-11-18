@@ -15,7 +15,9 @@ import '../core/document.dart';
 import '../core/fonts.dart';
 import '../core/file_dialog.dart';
 import '../core/native.dart';
+import '../core/print_preview.dart';
 import '../core/translit.dart';
+import 'calc_print.dart';
 
 const int maxRows = 1048576;
 const int maxCols = 1024;
@@ -387,7 +389,9 @@ class CalcPageState extends State<CalcPage> {
     final page = math.max(1, ((_viewSize.height - _colHeaderPx) / _rowH).floor() - 1);
     void move(int dr, int dc) => select(_row + dr, _col + dc, extend: shift);
     if (ctrl) {
-      if (key == LogicalKeyboardKey.keyC) {
+      if (key == LogicalKeyboardKey.keyP) {
+        _print();
+      } else if (key == LogicalKeyboardKey.keyC) {
         _copy();
       } else if (key == LogicalKeyboardKey.keyX) {
         _copy(cut: true);
@@ -864,9 +868,25 @@ class CalcPageState extends State<CalcPage> {
           IconButton(tooltip: t('Insert columns'), icon: const Icon(Icons.view_column_outlined), onPressed: () => _structure('calc.insert', 'col')),
           IconButton(tooltip: t('Delete rows'), icon: const Icon(Icons.playlist_remove), onPressed: () => _structure('calc.delete', 'row')),
           IconButton(tooltip: t('Delete columns'), icon: const Icon(Icons.delete_sweep_outlined), onPressed: () => _structure('calc.delete', 'col')),
+          const _Sep(),
+          IconButton(tooltip: t('Print (Ctrl+P)'), icon: const Icon(Icons.print_outlined), onPressed: _print),
         ]),
       ),
     );
+  }
+
+  /// Print preview of every non-empty sheet, with the system print dialog.
+  void _print() {
+    try {
+      final title = widget.doc.title;
+      showPrintPreview(
+        context,
+        calcPrintJob(widget.doc.handle, title: title),
+        reorient: (landscape) => calcPrintJob(widget.doc.handle, title: title, landscape: landscape),
+      );
+    } on CoreError catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   Widget _colorMenu(String tip, IconData icon, String attr) {
