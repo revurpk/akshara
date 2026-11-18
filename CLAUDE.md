@@ -15,3 +15,8 @@
   tables in app/lib/l10n (test/l10n_test.dart enforces this).
 - The app must not use the network or need admin rights; do not add
   plugins/packages that do.
+- Every new commit bumps the version: run `scripts/bump-version.sh`
+  (patch by default; `minor` / `major` when asked) before committing and
+  include its changes in the commit. It updates Cargo.toml, Cargo.lock,
+  app/pubspec.yaml (+1 build number), the Inno Setup default and
+  docs/installing.md. Amending a commit does not bump again.
