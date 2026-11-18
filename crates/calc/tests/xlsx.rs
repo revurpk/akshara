@@ -1,6 +1,9 @@
 //! Import of Microsoft Excel (.xlsx) files.
 
-use office_calc::{load_xlsx, save_ods, load_ods, CellAddr, HAlign, NumberFormat, Value, Workbook};
+use office_calc::{
+    load_ods, load_xlsx, save_ods, save_xlsx, CellAddr, HAlign, NumberFormat, PageSetup, PrintArea, Range, StylePatch, Value,
+    Workbook,
+};
 use office_odf::{Limits, Package, Rgb};
 
 const X: &str = "xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" \
@@ -142,4 +145,99 @@ fn broken_and_foreign_files_are_errors() {
     let many: String = (1..=50).map(|r| format!("<row r=\"{r}\"><c r=\"A{r}\"><v>{r}</v></c></row>")).collect();
     let limits = Limits { max_cells: 10, ..Limits::default() };
     assert!(load_xlsx(&xlsx("", &format!("<sheetData>{many}</sheetData>")), &limits).is_err());
+}
+
+fn r(s: &str) -> Range {
+    Range::parse(s).expect("range")
+}
+
+#[test]
+fn workbooks_round_trip_through_xlsx() {
+    let mut wb = Workbook::new();
+    wb.rename_sheet(0, "Budget 2026").expect("rename");
+    let formats = [
+        ("A1", "1234.5678", NumberFormat::Number { decimals: 3, thousands: false }),
+        ("A2", "1234.5", NumberFormat::Number { decimals: 2, thousands: true }),
+        ("A3", "0.125", NumberFormat::Percent { decimals: 1 }),
+        ("A4", "250000", NumberFormat::Currency { decimals: 2, symbol: "₹".into() }),
+        ("A5", "12345678", NumberFormat::IndianNumber { decimals: 0 }),
+        ("A6", "0.000123", NumberFormat::Scientific { decimals: 3 }),
+        ("A7", "2026-08-15", NumberFormat::Date),
+        ("A8", "15-08-2026", NumberFormat::DateDmy),
+        ("A9", "0.75", NumberFormat::Time),
+        ("A10", "46249.5", NumberFormat::DateTime),
+        ("A11", "007", NumberFormat::Text),
+    ];
+    for (cell, input, format) in &formats {
+        wb.set_style(0, r(cell), &StylePatch { format: Some(format.clone()), ..Default::default() }).expect("format");
+        wb.set_input(0, a(cell), input).expect("input");
+    }
+    wb.set_input(0, a("B1"), "Rent").expect("text");
+    wb.set_input(0, a("B2"), " leading space").expect("text");
+    wb.set_input(0, a("B3"), "TRUE").expect("bool");
+    wb.set_input(0, a("C1"), "=SUM(A1:A2)*2").expect("formula");
+    wb.set_input(0, a("C2"), "=CONCAT(B1;\" \";'Other'.A1)").expect("formula");
+    wb.set_input(0, a("C3"), "=1/0").expect("error formula");
+    wb.set_input(0, a("C4"), "=B3").expect("bool formula");
+    wb.set_style(0, r("B1:C1"), &StylePatch {
+        bold: Some(true),
+        italic: Some(true),
+        underline: Some(true),
+        align: Some(HAlign::Center),
+        color: Some(Some(Rgb(0xC0, 0, 0))),
+        background: Some(Some(Rgb(0xDD, 0xEB, 0xF7))),
+        ..Default::default()
+    })
+    .expect("style");
+    wb.set_col_width(0, 1, Some(120.0)).expect("width");
+    wb.set_print_area(0, PrintArea { range: Some(r("A1:C11")), repeat_rows: Some((0, 0)) }).expect("area");
+    wb.set_page(PageSetup { width: 841.89, height: 595.28, margin: 36.0, scale: 80, fit_width: false, grid: true, header_footer: true })
+        .expect("page");
+    let other = wb.add_sheet(Some("Other")).expect("sheet");
+    wb.set_input(other, a("A1"), "from other").expect("input");
+    wb.meta.title = Some("Budget".into());
+
+    let bytes = save_xlsx(&wb).expect("save");
+    let back = load_xlsx(&bytes, &Limits::default()).expect("load");
+    assert_eq!(back.sheet_count(), 2);
+    assert_eq!(back.sheet(0).expect("sheet").name, "Budget 2026");
+    for (cell, _, format) in &formats {
+        assert_eq!(&back.style(0, a(cell)).format, format, "{cell}");
+        assert_eq!(back.display(0, a(cell)), wb.display(0, a(cell)), "{cell}");
+    }
+    for cell in ["B1", "B2", "B3", "C1", "C2", "C3", "C4"] {
+        assert_eq!(back.input_text(0, a(cell)), wb.input_text(0, a(cell)), "{cell}");
+        assert_eq!(back.display(0, a(cell)), wb.display(0, a(cell)), "{cell}");
+    }
+    assert_eq!(back.display(0, a("C2")), "Rent from other");
+    assert_eq!(back.style(0, a("C1")), wb.style(0, a("C1")));
+    assert!((back.sheet(0).expect("sheet").col_widths[&1] - 120.0).abs() < 0.1);
+    assert_eq!(*back.sheet(0).expect("sheet").print_area(), *wb.sheet(0).expect("sheet").print_area());
+    let (p, q) = (back.page(), wb.page());
+    assert!((p.width - q.width).abs() < 0.5 && (p.height - q.height).abs() < 0.5 && (p.margin - q.margin).abs() < 0.1);
+    assert_eq!((p.scale, p.fit_width, p.grid, p.header_footer), (80, false, true, true));
+    assert_eq!(back.display(1, a("A1")), "from other");
+    assert_eq!(back.meta.title.as_deref(), Some("Budget"));
+
+    // Fit to width survives too, and the output is deterministic.
+    wb.set_page(PageSetup { fit_width: true, ..*wb.page() }).expect("fit");
+    let back = load_xlsx(&save_xlsx(&wb).expect("save"), &Limits::default()).expect("load");
+    assert!(back.page().fit_width);
+    assert_eq!(save_xlsx(&wb).expect("a"), save_xlsx(&wb).expect("b"));
+}
+
+#[test]
+fn saved_xlsx_has_office_structure() {
+    let mut wb = Workbook::new();
+    wb.set_input(0, a("A1"), "x").expect("input");
+    let bytes = save_xlsx(&wb).expect("save");
+    let pkg = Package::read(&bytes, &Limits::default()).expect("zip");
+    assert_eq!(pkg.mimetype(), "", "no ODF mimetype entry");
+    let names: Vec<&str> = pkg.entry_names().collect();
+    for part in ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/styles.xml",
+        "xl/sharedStrings.xml", "xl/worksheets/sheet1.xml", "docProps/core.xml"] {
+        assert!(names.contains(&part), "{part} missing: {names:?}");
+    }
+    assert!(!names.iter().any(|n| n.starts_with("META-INF")), "no ODF manifest");
+    assert!(bytes.windows(19).position(|w| w == b"[Content_Types].xml").is_some_and(|p| p < 100), "content types first");
 }

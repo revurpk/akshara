@@ -343,4 +343,6 @@ const Map<String, String> bnStrings = {
   "Rows to repeat": "পুনরাবৃত্ত সারি",
   "None": "কিছু না",
   "Clear": "মুছুন",
+  "Word document": "ওয়ার্ড নথি",
+  "Excel workbook": "এক্সেল ওয়ার্কবুক",
 };

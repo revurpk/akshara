@@ -31,12 +31,14 @@ enum DocKind {
   Map<String, String> get saveFormats => switch (this) {
         DocKind.writer => {
             'odt': t('OpenDocument Text'),
+            'docx': t('Word document'),
             'txt': t('Plain text'),
             'html': t('HTML page'),
             'md': t('Markdown'),
           },
         DocKind.calc => {
             'ods': t('OpenDocument Spreadsheet'),
+            'xlsx': t('Excel workbook'),
             'csv': t('CSV (current sheet)'),
             'tsv': t('Tab separated (current sheet)'),
           },
@@ -83,12 +85,16 @@ class OpenDoc extends ChangeNotifier {
     return '${dot > 0 ? name.substring(0, dot) : name}.${kind.nativeExtension}';
   }
 
-  /// Whether saving to [path] would keep everything (native format).
-  bool get hasNativePath {
-    if (path == null) return false;
-    final ext = extensionOf(path!);
-    return ext == kind.nativeExtension || (kind == DocKind.math && ext == 'mml');
-  }
+  /// Formats that keep everything the document model holds: saving to
+  /// them makes the file the document's home (Ctrl+S saves there again).
+  bool keepsEverything(String ext) =>
+      ext == kind.nativeExtension ||
+      (kind == DocKind.math && ext == 'mml') ||
+      (kind == DocKind.writer && ext == 'docx') ||
+      (kind == DocKind.calc && ext == 'xlsx');
+
+  /// Whether Ctrl+S can save to [path] without asking.
+  bool get hasNativePath => path != null && keepsEverything(extensionOf(path!));
 
   /// Re-reads modified/undo state from the core and notifies listeners.
   void refresh() {
@@ -113,11 +119,11 @@ class OpenDoc extends ChangeNotifier {
   Future<void> saveTo(String target) async {
     await coreAsync({'op': 'save', 'doc': handle, 'path': target, 'sheet': currentSheet});
     final ext = extensionOf(target);
-    // Native formats (and MathML, which embeds the formula source) are
-    // lossless: the document now lives there. Other formats are exports and
-    // leave the document's own path and "modified" state alone.
-    final lossless = ext == kind.nativeExtension || (kind == DocKind.math && ext == 'mml');
-    if (lossless) {
+    // Native formats, MathML (which embeds the formula source) and Word /
+    // Excel keep everything the document holds: the document now lives
+    // there. Other formats are exports and leave the document's own path
+    // and "modified" state alone.
+    if (keepsEverything(ext)) {
       path = target;
       if (kind == DocKind.math) modified = false;
     }

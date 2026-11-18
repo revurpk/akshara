@@ -343,4 +343,6 @@ const Map<String, String> mlStrings = {
   "Rows to repeat": "ആവർത്തിക്കുന്ന വരികൾ",
   "None": "ഒന്നുമില്ല",
   "Clear": "മായ്ക്കുക",
+  "Word document": "വേഡ് പ്രമാണം",
+  "Excel workbook": "എക്സൽ വർക്ക്ബുക്ക്",
 };

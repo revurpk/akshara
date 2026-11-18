@@ -143,7 +143,14 @@ pub enum Syntax {
     Ui,
     /// OpenFormula, as stored in `.ods` files.
     OpenFormula,
+    /// Excel, as stored in `.xlsx` files: `Sheet2!A1`, `,` between
+    /// arguments, `_xlfn.` before functions newer than Excel 2007. Parsed
+    /// like [`Syntax::Ui`].
+    Excel,
 }
+
+/// Functions that Excel files must name with the `_xlfn.` prefix.
+const XLFN: &[&str] = &["CONCAT", "TEXTJOIN", "IFNA", "DAYS", "XOR", "IFS", "SWITCH", "MAXIFS", "MINIFS"];
 
 // ---------------------------------------------------------------------------
 // Lexer
@@ -719,7 +726,11 @@ fn push_ref(out: &mut String, cell: &CellRef, syntax: Syntax) {
             push_sheet(out, sheet);
             out.push('.');
         }
-        (None, Syntax::Ui) => {}
+        (Some(sheet), Syntax::Excel) => {
+            push_sheet(out, sheet);
+            out.push('!');
+        }
+        (None, Syntax::Ui | Syntax::Excel) => {}
         (None, Syntax::OpenFormula) => out.push('.'),
     }
     push_coords(out, cell);
@@ -786,11 +797,14 @@ fn print(expr: &Expr, syntax: Syntax, out: &mut String) {
             out.push(')');
         }
         Expr::Call(name, args) => {
+            if syntax == Syntax::Excel && XLFN.contains(&name.as_str()) {
+                out.push_str("_xlfn.");
+            }
             out.push_str(name);
             out.push('(');
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {
-                    out.push(';');
+                    out.push(if syntax == Syntax::Excel { ',' } else { ';' });
                 }
                 print(arg, syntax, out);
             }
@@ -1005,6 +1019,8 @@ mod tests {
     fn open_formula_syntax() {
         let expr = parse_open_formula("of:=SUM([.A1:.B2];[$Sheet2.C3])*[.$D$4]");
         assert_eq!(expr.to_source(Syntax::Ui), "SUM(A1:B2;Sheet2.C3)*$D$4");
+        assert_eq!(expr.to_source(Syntax::Excel), "SUM(A1:B2,Sheet2!C3)*$D$4");
+        assert_eq!(ui("CONCAT('My Sheet'.A1;\"x\")").to_source(Syntax::Excel), "_xlfn.CONCAT('My Sheet'!A1,\"x\")");
         assert_eq!(expr.to_open_formula(), "of:=SUM([.A1:.B2];[$Sheet2.C3])*[.$D$4]");
         let expr = parse_open_formula("oooc:=[$'My Sheet'.A1:.B2]");
         assert_eq!(expr.to_source(Syntax::Ui), "'My Sheet'.A1:B2");

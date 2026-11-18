@@ -9,16 +9,21 @@
 - Every open document is a **tab**. A dot (•) marks unsaved changes. Close a
   tab with its × button, the middle mouse button, or Ctrl+W.
 - **Save** (Ctrl+S) writes the native format (`.odt`, `.ods`, `.odf`).
-  **Save as / export** (Ctrl+Shift+S) can also export plain text, HTML,
-  Markdown, CSV, TSV or MathML.
+  **Save as / export** (Ctrl+Shift+S) can also save as a Word document
+  (`.docx`) or Excel workbook (`.xlsx`), and export plain text, HTML,
+  Markdown, CSV, TSV or MathML. After saving as Word or Excel, Ctrl+S keeps
+  saving in that format.
 - The built-in **file browser** works the same on every platform. It shows
   only documents Akshara can open, has quick links to Documents, Home and
   Desktop, and can create folders.
 - **Microsoft Word and Excel files** (`.docx`, `.xlsx`, and the macro and
   template variants `.docm`, `.dotx`, `.xlsm`, `.xltx`) open in Writer and
-  Calc. They are imported: the tab shows the file's name, and *Save* asks
-  where to save it as OpenDocument (`report.docx` becomes `report.odt`);
-  the original file is never changed. Macros are never run. Old binary
+  Calc. They are imported: the tab shows the file's name, and the first
+  *Save* asks where to save it (as OpenDocument by default, `report.docx`
+  becomes `report.odt`, or choose *Word document* / *Excel workbook* to
+  save it back in Office format). The original is only replaced if you
+  choose it yourself, because anything Akshara does not import (images,
+  charts, comments...) would be lost from it. Macros are never run. Old binary
   `.doc` and `.xls` files and password protected Office files cannot be
   opened: save them as `.docx` / `.xlsx` without a password in Office
   first.
@@ -286,8 +291,9 @@ and saved again:
   kept), repeated title columns, manual page breaks, a different page
   setup per sheet, and custom header and footer text; cell borders are
   drawn as light grid lines.
-- All: password-protected documents (they are refused), saving in
-  Microsoft Office formats (Word and Excel files can only be opened), and
-  old binary `.doc` / `.xls` files.
+- All: password-protected documents (they are refused), and old binary
+  `.doc` / `.xls` files. Saving as Word or Excel writes what Akshara
+  models; images, charts and comments of an imported Office file are not
+  carried over.
 
 Keep an original copy when editing complex documents made elsewhere.

@@ -42,7 +42,7 @@ pub use address::{col_name, parse_col, CellAddr, Range, MAX_COLS, MAX_ROWS};
 pub use csv::{load_csv, sheet_to_csv};
 pub use format::NumberFormat;
 pub use ods::{load_ods, save_ods};
-pub use xlsx::load_xlsx;
+pub use xlsx::{load_xlsx, save_xlsx};
 pub use value::{ErrorKind, Value};
 pub use workbook::{
     is_valid_sheet_name, Axis, Cell, CellStyle, Content, HAlign, PageSetup, PrintArea, Sheet, StylePatch, Workbook, MAX_BULK_CELLS,

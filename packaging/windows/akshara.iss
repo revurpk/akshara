@@ -5,7 +5,7 @@
 ; build-installer.sh (Git Bash), or: iscc akshara.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.1.8"
+  #define AppVersion "0.1.9"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\..\app\build\windows\x64\runner\Release"

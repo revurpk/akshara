@@ -343,4 +343,6 @@ const Map<String, String> taStrings = {
   "Rows to repeat": "மீண்டும் வரும் கிடைவரிசைகள்",
   "None": "ஏதுமில்லை",
   "Clear": "அழி",
+  "Word document": "வேர்டு ஆவணம்",
+  "Excel workbook": "எக்செல் பணிப்புத்தகம்",
 };

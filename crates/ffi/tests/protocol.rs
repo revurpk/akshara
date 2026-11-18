@@ -321,8 +321,12 @@ fn word_and_excel_files_open_read_only() {
     let got = ok(json!({"op": "writer.get", "doc": opened["doc"]}));
     assert_eq!(got["blocks"][0]["runs"][0]["text"], json!("Hello from Word"));
     assert_eq!(got["blocks"][0]["runs"][0]["bold"], json!(true));
-    // Saving in the Word format is not offered.
-    assert_eq!(err_kind(json!({"op": "save", "doc": opened["doc"], "path": temp("x.docx")})), "unsupported");
+    // Saving back to Word works and clears "modified"; the copy reopens.
+    ok(json!({"op": "writer.set_text", "doc": opened["doc"], "para": {"block": 0}, "text": "Hello again"}));
+    let saved = ok(json!({"op": "save", "doc": opened["doc"], "path": temp("copy.docx")}));
+    assert_eq!(saved["modified"], json!(false));
+    let again = ok(json!({"op": "open", "path": temp("copy.docx")}));
+    assert_eq!(ok(json!({"op": "writer.get", "doc": again["doc"]}))["blocks"][0]["runs"][0]["text"], json!("Hello again"));
 
     let main = "xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"";
     let xlsx = ooxml("xl/workbook.xml", &[
@@ -338,6 +342,10 @@ fn word_and_excel_files_open_read_only() {
     let cell = ok(json!({"op": "calc.cell", "doc": opened["doc"], "sheet": 0, "cell": "B1"}));
     assert_eq!((cell["input"].clone(), cell["display"].clone()), (json!("=A1*21"), json!("42")));
     assert_eq!(ok(json!({"op": "calc.sheets", "doc": opened["doc"]}))[0]["name"], json!("Data"));
+    ok(json!({"op": "save", "doc": opened["doc"], "path": temp("copy.xlsx")}));
+    let again = ok(json!({"op": "open", "path": temp("copy.xlsx")}));
+    let cell = ok(json!({"op": "calc.cell", "doc": again["doc"], "sheet": 0, "cell": "B1"}));
+    assert_eq!((cell["input"].clone(), cell["display"].clone()), (json!("=A1*21"), json!("42")));
 
     // Old binary Office files get a clear message.
     let mut ole = vec![0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];

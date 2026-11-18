@@ -1,4 +1,4 @@
-//! Microsoft Word (`.docx`) import.
+//! Microsoft Word (`.docx`) import and export.
 //!
 //! Read: paragraphs and runs (bold, italic, underline, strike-through,
 //! monospace fonts, super- and subscript, colour, highlight and shading,
@@ -13,12 +13,15 @@
 //! The text of text boxes follows the paragraph they are anchored in.
 //! Images, footnotes, comments and other fields are not modelled; text
 //! inside them is skipped (except field results, which are kept as text).
-//! Documents are only read: saving goes to `.odt`.
+//!
+//! [`save_docx`] writes everything the model holds, with Word's own styles
+//! (Normal, Heading 1-6, Title, Quote, HTML Preformatted, Hyperlink, Table
+//! Grid) so the document looks right and edits naturally in Word.
 
 use crate::document::Document;
 use crate::model::*;
 use office_odf::ooxml::{self, twips, Relationship};
-use office_odf::xml::Element;
+use office_odf::xml::{Element, XmlWriter};
 use office_odf::{Limits, Metadata, OdfError, Package, Result, Rgb};
 use std::collections::HashMap;
 
@@ -406,7 +409,9 @@ impl Importer<'_> {
         let rpr = r.child("w:rPr");
         let mut attrs = base.clone();
         let style = rpr.and_then(|p| p.child("w:rStyle")).and_then(|s| s.attr("w:val"));
-        if style.is_some() {
+        // Link styling comes from the link itself in Akshara.
+        let link_style = matches!(style, Some("Hyperlink" | "FollowedHyperlink")) && base.link.is_some();
+        if style.is_some() && !link_style {
             self.style_chain(style, false).0.apply(&mut attrs);
         }
         parse_rpr(rpr).apply(&mut attrs);
@@ -513,10 +518,13 @@ impl Importer<'_> {
                 r.attrs.code = false;
             }
         }
-        let align = own.align.or(style_para.align).unwrap_or_default();
+        // Headings, titles, quotations and code get their look from the kind;
+        // only body text takes layout from its (custom) paragraph style.
         let is_list = matches!(kind, ParaKind::Bullet { .. } | ParaKind::Numbered { .. });
-        let indent = if is_list { 0.0 } else { own.indent.or(style_para.indent).unwrap_or(0.0) };
-        let space_before = own.space_before.or(style_para.space_before).unwrap_or(0.0);
+        let style_layout = if kind == ParaKind::Normal { style_para.clone() } else { ParaProps::default() };
+        let align = own.align.or(style_layout.align).unwrap_or_default();
+        let indent = if is_list { 0.0 } else { own.indent.or(style_layout.indent).unwrap_or(0.0) };
+        let space_before = own.space_before.or(style_layout.space_before).unwrap_or(0.0);
         if (own.page_break_before || style_para.page_break_before) && !out.is_empty() {
             out.push(Block::PageBreak);
         }
@@ -534,6 +542,11 @@ impl Importer<'_> {
             }
         }
         let count = pieces.len();
+        // An empty body paragraph holding only a page break is the break.
+        if count == 2 && kind == ParaKind::Normal && pieces.iter().all(Vec::is_empty) {
+            out.push(Block::PageBreak);
+            return Ok(());
+        }
         for (i, piece) in pieces.into_iter().enumerate() {
             if i > 0 {
                 out.push(Block::PageBreak);
@@ -618,6 +631,9 @@ impl Importer<'_> {
             .map(|g| g.children_named("w:gridCol").map(|c| twips(c.attr("w:w")).filter(|w| *w > 0.0)).collect())
             .unwrap_or_default();
         let tbl_pr = tbl.child("w:tblPr");
+        // Full-width percentage tables share the width (no fixed columns).
+        let full_width = tbl_pr.and_then(|p| p.child("w:tblW")).is_some_and(|w| w.attr("w:type") == Some("pct"));
+        let grid = if full_width { Vec::new() } else { grid };
         let borders = match tbl_pr.and_then(|p| p.child("w:tblBorders")) {
             Some(b) => b.elements().any(|e| !matches!(e.attr("w:val"), Some("nil" | "none"))),
             // Without explicit borders, a table style (e.g. "Table Grid")
@@ -804,4 +820,531 @@ pub fn load_docx(bytes: &[u8], limits: &Limits) -> Result<Document> {
         doc.meta = Metadata { title: text("dc:title"), subject: text("dc:subject"), creator: text("dc:creator"), ..Default::default() };
     }
     Ok(doc)
+}
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+const W_NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+const R_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const DOC_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const WML: &str = "application/vnd.openxmlformats-officedocument.wordprocessingml";
+
+/// Points to twentieths of a point.
+fn tw(pt: f32) -> String {
+    format!("{}", (pt * 20.0).round() as i64)
+}
+
+fn hex(c: Rgb) -> String {
+    c.to_hex().trim_start_matches('#').to_uppercase()
+}
+
+struct Writer {
+    /// External link targets, by relationship id order (rIdL1...).
+    links: Vec<String>,
+    /// numId of each numbered list (all use abstract numbering 1).
+    numbered_lists: usize,
+    /// numId for the numbered list being written.
+    current_list: Option<usize>,
+}
+
+impl Writer {
+    fn link_id(&mut self, target: &str) -> String {
+        let i = self.links.iter().position(|l| l == target).unwrap_or_else(|| {
+            self.links.push(target.to_owned());
+            self.links.len() - 1
+        });
+        format!("rIdL{}", i + 1)
+    }
+
+    fn run_props(w: &mut XmlWriter, a: &TextAttrs) {
+        let any = a.bold || a.italic || a.underline || a.strike || a.code || a.superscript || a.subscript
+            || a.color.is_some() || a.highlight.is_some() || a.size.is_some() || a.link.is_some();
+        if !any {
+            return;
+        }
+        // Children in the order the schema requires.
+        w.start("w:rPr");
+        if a.link.is_some() {
+            w.start("w:rStyle").attr("w:val", "Hyperlink").end();
+        }
+        if a.code {
+            w.start("w:rFonts").attr("w:ascii", "Courier New").attr("w:hAnsi", "Courier New").attr("w:cs", "Courier New").end();
+        }
+        if a.bold {
+            w.start("w:b").end();
+        }
+        if a.italic {
+            w.start("w:i").end();
+        }
+        if a.strike {
+            w.start("w:strike").end();
+        }
+        if let Some(c) = a.color {
+            w.start("w:color").attr("w:val", &hex(c)).end();
+        }
+        if let Some(size) = a.size {
+            let half = format!("{}", (size * 2.0).round() as i64);
+            w.start("w:sz").attr("w:val", &half).end();
+            w.start("w:szCs").attr("w:val", &half).end();
+        }
+        if a.underline {
+            w.start("w:u").attr("w:val", "single").end();
+        }
+        if let Some(h) = a.highlight {
+            w.start("w:shd").attr("w:val", "clear").attr("w:color", "auto").attr("w:fill", &hex(h)).end();
+        }
+        if a.superscript {
+            w.start("w:vertAlign").attr("w:val", "superscript").end();
+        } else if a.subscript {
+            w.start("w:vertAlign").attr("w:val", "subscript").end();
+        }
+        w.end();
+    }
+
+    fn run(w: &mut XmlWriter, run: &Run) {
+        if let Some(field) = run.attrs.field {
+            let instr = match field {
+                Field::PageNumber => " PAGE ",
+                Field::PageCount => " NUMPAGES ",
+            };
+            w.start("w:fldSimple").attr("w:instr", instr).start("w:r");
+            Self::run_props(w, &run.attrs);
+            w.start("w:t").text(&run.text).end();
+            w.end().end();
+            return;
+        }
+        w.start("w:r");
+        Self::run_props(w, &run.attrs);
+        let mut first = true;
+        for line in run.text.split('\n') {
+            if !first {
+                w.start("w:br").end();
+            }
+            first = false;
+            let mut first_tab = true;
+            for part in line.split('\t') {
+                if !first_tab {
+                    w.start("w:tab").end();
+                }
+                first_tab = false;
+                if !part.is_empty() {
+                    w.start("w:t").attr("xml:space", "preserve").text(part).end();
+                }
+            }
+        }
+        w.end();
+    }
+
+    fn runs(&mut self, w: &mut XmlWriter, p: &Paragraph) {
+        let mut i = 0;
+        while i < p.runs.len() {
+            let run = &p.runs[i];
+            if run.text.is_empty() {
+                i += 1;
+                continue;
+            }
+            match run.attrs.link.as_deref().and_then(sanitize_link) {
+                Some(link) => {
+                    // Consecutive runs with the same target share one link.
+                    let id = self.link_id(&link);
+                    w.start("w:hyperlink").attr("r:id", &id);
+                    while i < p.runs.len() && p.runs[i].attrs.link.as_deref() == run.attrs.link.as_deref() {
+                        Self::run(w, &p.runs[i]);
+                        i += 1;
+                    }
+                    w.end();
+                }
+                None => {
+                    Self::run(w, run);
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn paragraph(&mut self, w: &mut XmlWriter, p: &Paragraph, break_before: bool) {
+        w.start("w:p");
+        let style = match p.kind {
+            ParaKind::Heading { level } => Some(format!("Heading{}", level.clamp(1, 6))),
+            ParaKind::Title => Some("Title".into()),
+            ParaKind::Quote => Some("Quote".into()),
+            ParaKind::Code => Some("HTMLPreformatted".into()),
+            _ => None,
+        };
+        let num = match p.kind {
+            ParaKind::Bullet { level } => Some((1, level)),
+            ParaKind::Numbered { level } => {
+                let id = *self.current_list.get_or_insert_with(|| {
+                    self.numbered_lists += 1;
+                    1 + self.numbered_lists
+                });
+                Some((id, level))
+            }
+            _ => None,
+        };
+        let has_props = style.is_some() || break_before || num.is_some() || p.space_before > 0.0 || p.indent > 0.0 || p.align != Align::Left;
+        if has_props {
+            w.start("w:pPr");
+            if let Some(style) = style {
+                w.start("w:pStyle").attr("w:val", &style).end();
+            }
+            if break_before {
+                w.start("w:pageBreakBefore").end();
+            }
+            if let Some((id, level)) = num {
+                w.start("w:numPr");
+                w.start("w:ilvl").attr("w:val", &level.min(8).to_string()).end();
+                w.start("w:numId").attr("w:val", &id.to_string()).end();
+                w.end();
+            }
+            if p.space_before > 0.0 {
+                w.start("w:spacing").attr("w:before", &tw(p.space_before)).end();
+            }
+            if p.indent > 0.0 && num.is_none() {
+                w.start("w:ind").attr("w:left", &tw(p.indent)).end();
+            }
+            let jc = match p.align {
+                Align::Left => None,
+                Align::Center => Some("center"),
+                Align::Right => Some("right"),
+                Align::Justify => Some("both"),
+            };
+            if let Some(jc) = jc {
+                w.start("w:jc").attr("w:val", jc).end();
+            }
+            w.end();
+        }
+        self.runs(w, p);
+        w.end();
+    }
+
+    fn table(&mut self, w: &mut XmlWriter, t: &Table, text_width: f32) {
+        let cols = t.cols().max(1);
+        let fixed = t.col_widths.len() == cols;
+        let widths: Vec<f32> = if fixed { t.col_widths.clone() } else { vec![text_width / cols as f32; cols] };
+        w.start("w:tbl").start("w:tblPr");
+        if t.borders {
+            w.start("w:tblStyle").attr("w:val", "TableGrid").end();
+        }
+        if fixed {
+            w.start("w:tblW").attr("w:w", &tw(widths.iter().sum())).attr("w:type", "dxa").end();
+        } else {
+            w.start("w:tblW").attr("w:w", "5000").attr("w:type", "pct").end();
+        }
+        if !t.borders {
+            w.start("w:tblBorders");
+            for side in ["top", "left", "bottom", "right", "insideH", "insideV"] {
+                w.start(&format!("w:{side}")).attr("w:val", "nil").end();
+            }
+            w.end();
+        }
+        if fixed {
+            w.start("w:tblLayout").attr("w:type", "fixed").end();
+        }
+        w.end();
+        w.start("w:tblGrid");
+        for width in &widths {
+            w.start("w:gridCol").attr("w:w", &tw(*width)).end();
+        }
+        w.end();
+        for (r, row) in t.rows.iter().enumerate() {
+            w.start("w:tr");
+            if let Some(h) = t.row_heights.get(r) {
+                w.start("w:trPr").start("w:trHeight").attr("w:val", &tw(*h)).attr("w:hRule", "exact").end().end();
+            }
+            for (c, cell) in row.iter().enumerate() {
+                w.start("w:tc").start("w:tcPr").start("w:tcW").attr("w:w", &tw(widths[c.min(widths.len() - 1)])).attr("w:type", "dxa").end().end();
+                self.current_list = None;
+                for p in cell {
+                    self.paragraph(w, p, false);
+                }
+                if cell.is_empty() {
+                    w.start("w:p").end();
+                }
+                w.end();
+            }
+            w.end();
+        }
+        w.end();
+    }
+
+    /// A header or footer part and its link targets (each part has its
+    /// own relationships).
+    fn area(&mut self, root: &str, paragraphs: &[Paragraph]) -> (String, Vec<String>) {
+        let saved = std::mem::take(&mut self.links);
+        let mut w = XmlWriter::new();
+        w.start(root).attr("xmlns:w", W_NS).attr("xmlns:r", R_NS);
+        self.current_list = None;
+        for p in paragraphs {
+            self.paragraph(&mut w, p, false);
+        }
+        let links = std::mem::replace(&mut self.links, saved);
+        (w.finish(), links)
+    }
+}
+
+/// A relationships part listing styles/numbering/areas plus external links.
+fn rels_xml(fixed: &[(&str, &str, &str)], links: &[String]) -> String {
+    let mut w = XmlWriter::new();
+    w.start("Relationships").attr("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+    for (id, kind, target) in fixed {
+        w.start("Relationship").attr("Id", id).attr("Type", &format!("{DOC_REL}/{kind}")).attr("Target", target).end();
+    }
+    for (i, link) in links.iter().enumerate() {
+        w.start("Relationship")
+            .attr("Id", &format!("rIdL{}", i + 1))
+            .attr("Type", &format!("{DOC_REL}/hyperlink"))
+            .attr("Target", link)
+            .attr("TargetMode", "External")
+            .end();
+    }
+    w.finish()
+}
+
+fn styles_xml() -> String {
+    let mut w = XmlWriter::new();
+    w.start("w:styles").attr("xmlns:w", W_NS);
+    w.start("w:docDefaults");
+    w.start("w:rPrDefault").start("w:rPr");
+    w.start("w:rFonts").attr("w:ascii", "Times New Roman").attr("w:hAnsi", "Times New Roman").attr("w:eastAsia", "Times New Roman").attr("w:cs", "Times New Roman").end();
+    w.start("w:sz").attr("w:val", "24").end();
+    w.start("w:szCs").attr("w:val", "24").end();
+    w.end().end();
+    w.start("w:pPrDefault").start("w:pPr").start("w:spacing").attr("w:after", "140").end().end().end();
+    w.end();
+    let style = |w: &mut XmlWriter, kind: &str, id: &str, name: &str, body: &dyn Fn(&mut XmlWriter)| {
+        w.start("w:style").attr("w:type", kind).attr("w:styleId", id);
+        if id == "Normal" {
+            w.attr("w:default", "1");
+        }
+        w.start("w:name").attr("w:val", name).end();
+        body(w);
+        w.end();
+    };
+    style(&mut w, "paragraph", "Normal", "Normal", &|_| {});
+    for (level, size) in [(1, 40), (2, 34), (3, 29), (4, 26), (5, 24), (6, 24)] {
+        style(&mut w, "paragraph", &format!("Heading{level}"), &format!("heading {level}"), &|w| {
+            w.start("w:basedOn").attr("w:val", "Normal").end();
+            w.start("w:next").attr("w:val", "Normal").end();
+            w.start("w:qFormat").end();
+            w.start("w:pPr");
+            w.start("w:keepNext").end();
+            w.start("w:spacing").attr("w:before", "240").attr("w:after", "80").end();
+            w.start("w:outlineLvl").attr("w:val", &(level - 1).to_string()).end();
+            w.end();
+            w.start("w:rPr");
+            w.start("w:rFonts").attr("w:ascii", "Arial").attr("w:hAnsi", "Arial").end();
+            w.start("w:b").end();
+            if level >= 5 {
+                w.start("w:i").end();
+            }
+            w.start("w:sz").attr("w:val", &size.to_string()).end();
+            w.end();
+        });
+    }
+    style(&mut w, "paragraph", "Title", "Title", &|w| {
+        w.start("w:basedOn").attr("w:val", "Normal").end();
+        w.start("w:next").attr("w:val", "Normal").end();
+        w.start("w:qFormat").end();
+        w.start("w:rPr");
+        w.start("w:rFonts").attr("w:ascii", "Arial").attr("w:hAnsi", "Arial").end();
+        w.start("w:b").end();
+        w.start("w:sz").attr("w:val", "56").end();
+        w.end();
+    });
+    style(&mut w, "paragraph", "Quote", "Quote", &|w| {
+        w.start("w:basedOn").attr("w:val", "Normal").end();
+        w.start("w:qFormat").end();
+        w.start("w:pPr").start("w:ind").attr("w:left", "567").attr("w:right", "567").end().end();
+        w.start("w:rPr").start("w:i").end().end();
+    });
+    style(&mut w, "paragraph", "HTMLPreformatted", "HTML Preformatted", &|w| {
+        w.start("w:basedOn").attr("w:val", "Normal").end();
+        w.start("w:pPr").start("w:spacing").attr("w:after", "0").end().end();
+        w.start("w:rPr");
+        w.start("w:rFonts").attr("w:ascii", "Courier New").attr("w:hAnsi", "Courier New").attr("w:cs", "Courier New").end();
+        w.start("w:sz").attr("w:val", "20").end();
+        w.end();
+    });
+    style(&mut w, "character", "Hyperlink", "Hyperlink", &|w| {
+        w.start("w:rPr").start("w:color").attr("w:val", "0563C1").end().start("w:u").attr("w:val", "single").end().end();
+    });
+    style(&mut w, "table", "TableGrid", "Table Grid", &|w| {
+        w.start("w:tblPr").start("w:tblBorders");
+        for side in ["top", "left", "bottom", "right", "insideH", "insideV"] {
+            w.start(&format!("w:{side}")).attr("w:val", "single").attr("w:sz", "4").attr("w:space", "0").attr("w:color", "auto").end();
+        }
+        w.end();
+        w.start("w:tblCellMar");
+        for (side, v) in [("left", "72"), ("right", "72")] {
+            w.start(&format!("w:{side}")).attr("w:w", v).attr("w:type", "dxa").end();
+        }
+        w.end();
+        w.end();
+    });
+    w.finish()
+}
+
+fn numbering_xml(numbered_lists: usize) -> String {
+    let mut w = XmlWriter::new();
+    w.start("w:numbering").attr("xmlns:w", W_NS);
+    for (abstract_id, bullet) in [(0, true), (1, false)] {
+        w.start("w:abstractNum").attr("w:abstractNumId", &abstract_id.to_string());
+        w.start("w:multiLevelType").attr("w:val", "hybridMultilevel").end();
+        for level in 0..9u32 {
+            w.start("w:lvl").attr("w:ilvl", &level.to_string());
+            w.start("w:start").attr("w:val", "1").end();
+            w.start("w:numFmt").attr("w:val", if bullet { "bullet" } else { "decimal" }).end();
+            let text = if bullet { ["•", "◦", "▪"][(level % 3) as usize].to_owned() } else { format!("%{}.", level + 1) };
+            w.start("w:lvlText").attr("w:val", &text).end();
+            w.start("w:lvlJc").attr("w:val", "left").end();
+            w.start("w:pPr").start("w:ind").attr("w:left", &(360 * (level + 2)).to_string()).attr("w:hanging", "360").end().end();
+            w.end();
+        }
+        w.end();
+    }
+    // Bullets share numId 1; every numbered list has its own numId so its
+    // numbering starts at 1, as in the editor.
+    w.start("w:num").attr("w:numId", "1").start("w:abstractNumId").attr("w:val", "0").end().end();
+    for i in 0..numbered_lists {
+        w.start("w:num").attr("w:numId", &(i + 2).to_string());
+        w.start("w:abstractNumId").attr("w:val", "1").end();
+        for level in 0..9 {
+            w.start("w:lvlOverride").attr("w:ilvl", &level.to_string()).start("w:startOverride").attr("w:val", "1").end().end();
+        }
+        w.end();
+    }
+    w.finish()
+}
+
+fn core_xml(meta: &Metadata) -> String {
+    let mut w = XmlWriter::new();
+    w.start("cp:coreProperties")
+        .attr("xmlns:cp", "http://schemas.openxmlformats.org/package/2006/metadata/core-properties")
+        .attr("xmlns:dc", "http://purl.org/dc/elements/1.1/");
+    for (name, value) in [("dc:title", &meta.title), ("dc:subject", &meta.subject), ("dc:creator", &meta.creator)] {
+        if let Some(v) = value {
+            w.start(name).text(v).end();
+        }
+    }
+    w.finish()
+}
+
+/// Serialises a document to the bytes of a `.docx` file.
+pub fn save_docx(doc: &Document) -> Result<Vec<u8>> {
+    let page = doc.page();
+    let text_width = (page.width - 2.0 * page.margin).max(72.0);
+    let mut out = Writer { links: Vec::new(), numbered_lists: 0, current_list: None };
+
+    let mut w = XmlWriter::new();
+    w.start("w:document").attr("xmlns:w", W_NS).attr("xmlns:r", R_NS);
+    w.start("w:body");
+    let mut break_next = false;
+    for block in doc.blocks() {
+        match block {
+            Block::Paragraph(p) => {
+                if !matches!(p.kind, ParaKind::Bullet { .. } | ParaKind::Numbered { .. }) {
+                    out.current_list = None;
+                }
+                out.paragraph(&mut w, p, break_next);
+                break_next = false;
+            }
+            Block::Table(t) => {
+                out.current_list = None;
+                if break_next {
+                    w.start("w:p").start("w:r").start("w:br").attr("w:type", "page").end().end().end();
+                    break_next = false;
+                }
+                out.table(&mut w, t, text_width);
+                out.current_list = None;
+            }
+            Block::PageBreak => {
+                out.current_list = None;
+                break_next = true;
+            }
+        }
+    }
+    if break_next {
+        w.start("w:p").start("w:r").start("w:br").attr("w:type", "page").end().end().end();
+    }
+    let header = (!doc.header().is_empty()).then(|| out.area("w:hdr", doc.header()));
+    let footer = (!doc.footer().is_empty()).then(|| out.area("w:ftr", doc.footer()));
+    w.start("w:sectPr");
+    if header.is_some() {
+        w.start("w:headerReference").attr("w:type", "default").attr("r:id", "rIdH1").end();
+    }
+    if footer.is_some() {
+        w.start("w:footerReference").attr("w:type", "default").attr("r:id", "rIdF1").end();
+    }
+    w.start("w:pgSz").attr("w:w", &tw(page.width)).attr("w:h", &tw(page.height));
+    if page.is_landscape() {
+        w.attr("w:orient", "landscape");
+    }
+    w.end();
+    let m = tw(page.margin);
+    w.start("w:pgMar")
+        .attr("w:top", &m)
+        .attr("w:right", &m)
+        .attr("w:bottom", &m)
+        .attr("w:left", &m)
+        .attr("w:header", &tw((page.margin / 2.0).min(36.0)))
+        .attr("w:footer", &tw((page.margin / 2.0).min(36.0)))
+        .attr("w:gutter", "0")
+        .end();
+    w.end(); // sectPr
+    let document = w.finish();
+
+    let mut package = Package::new("");
+    let mut types = XmlWriter::new();
+    types.start("Types").attr("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+    types.start("Default").attr("Extension", "rels").attr("ContentType", "application/vnd.openxmlformats-package.relationships+xml").end();
+    types.start("Default").attr("Extension", "xml").attr("ContentType", "application/xml").end();
+    let mut over = |part: &str, kind: &str| {
+        types.start("Override").attr("PartName", part).attr("ContentType", kind).end();
+    };
+    over("/word/document.xml", &format!("{WML}.document.main+xml"));
+    over("/word/styles.xml", &format!("{WML}.styles+xml"));
+    over("/word/numbering.xml", &format!("{WML}.numbering+xml"));
+    if header.is_some() {
+        over("/word/header1.xml", &format!("{WML}.header+xml"));
+    }
+    if footer.is_some() {
+        over("/word/footer1.xml", &format!("{WML}.footer+xml"));
+    }
+    over("/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml");
+    package.insert("[Content_Types].xml", types.finish().into_bytes())?;
+
+    let mut rels = XmlWriter::new();
+    rels.start("Relationships").attr("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+    rels.start("Relationship").attr("Id", "rId1").attr("Type", &format!("{DOC_REL}/officeDocument")).attr("Target", "word/document.xml").end();
+    rels.start("Relationship")
+        .attr("Id", "rId2")
+        .attr("Type", "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties")
+        .attr("Target", "docProps/core.xml")
+        .end();
+    package.insert("_rels/.rels", rels.finish().into_bytes())?;
+
+    let mut fixed = vec![("rIdS1", "styles", "styles.xml"), ("rIdN1", "numbering", "numbering.xml")];
+    if header.is_some() {
+        fixed.push(("rIdH1", "header", "header1.xml"));
+    }
+    if footer.is_some() {
+        fixed.push(("rIdF1", "footer", "footer1.xml"));
+    }
+    package.insert("word/_rels/document.xml.rels", rels_xml(&fixed, &out.links).into_bytes())?;
+    package.insert("word/document.xml", document.into_bytes())?;
+    package.insert("word/styles.xml", styles_xml().into_bytes())?;
+    package.insert("word/numbering.xml", numbering_xml(out.numbered_lists).into_bytes())?;
+    for (name, area) in [("header1.xml", header), ("footer1.xml", footer)] {
+        if let Some((xml, links)) = area {
+            package.insert(format!("word/{name}"), xml.into_bytes())?;
+            if !links.is_empty() {
+                package.insert(format!("word/_rels/{name}.rels"), rels_xml(&[], &links).into_bytes())?;
+            }
+        }
+    }
+    package.insert("docProps/core.xml", core_xml(&doc.meta).into_bytes())?;
+    package.write_plain()
 }

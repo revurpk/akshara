@@ -285,6 +285,23 @@ impl Package {
         zip.write_all(self.manifest_xml().as_bytes())?;
         Ok(zip.finish().map_err(zip_err)?.into_inner())
     }
+
+    /// Serialises the entries only, without the ODF `mimetype` and manifest
+    /// (for Office Open XML packages). `[Content_Types].xml` comes first.
+    /// Deterministic like [`write`](Self::write).
+    pub fn write_plain(&self) -> Result<Vec<u8>> {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        let deflated = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .last_modified_time(DateTime::default());
+        const TYPES: &str = "[Content_Types].xml";
+        let first = self.entries.get(TYPES).map(|d| (TYPES, d));
+        for (name, data) in first.into_iter().chain(self.entries.iter().map(|(n, d)| (n.as_str(), d)).filter(|(n, _)| *n != TYPES)) {
+            zip.start_file(name, deflated).map_err(zip_err)?;
+            zip.write_all(data)?;
+        }
+        Ok(zip.finish().map_err(zip_err)?.into_inner())
+    }
 }
 
 #[cfg(test)]

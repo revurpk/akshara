@@ -9,8 +9,8 @@ LibreOffice. It starts with three applications:
 
 | App | Does | Native format | Also opens / saves |
 |---|---|---|---|
-| **Writer** · लेखक | Word processing | `.odt` | `.txt`, opens Word `.docx` · exports `.html`, `.md`, `.pdf`; prints |
-| **Calc** · गणक | Spreadsheets, 131 functions | `.ods` | `.csv`, `.tsv`, opens Excel `.xlsx` |
+| **Writer** · लेखक | Word processing | `.odt` | Word `.docx`, `.txt` · exports `.html`, `.md`, `.pdf`; prints |
+| **Calc** · गणक | Spreadsheets, 131 functions | `.ods` | Excel `.xlsx`, `.csv`, `.tsv` |
 | **Math** · गणित | Formula editor (StarMath language) | `.odf` | `.mml` (MathML) |
 
 The core is written in **Rust** and the user interface in **Flutter**. It

@@ -1,4 +1,4 @@
-//! Microsoft Excel (`.xlsx`) import.
+//! Microsoft Excel (`.xlsx`) import and export.
 //!
 //! Read: sheets (names, order), shared and inline strings, numbers,
 //! booleans, errors, ISO dates, formulas (including shared formulas; a
@@ -9,8 +9,12 @@
 //! the title.
 //!
 //! Charts, images, comments, merged cells, conditional formats and
-//! validation are not modelled. Workbooks are only read: saving goes to
-//! `.ods`. Macros (`.xlsm`) are never run, only skipped.
+//! validation are not modelled. Macros (`.xlsm`) are never run, only
+//! skipped.
+//!
+//! [`save_xlsx`] writes everything the model holds: sheets, values,
+//! formulas (in Excel syntax, with their last value), styles and number
+//! formats, column widths, print ranges, title rows and the page setup.
 
 use crate::address::{CellAddr, Range, MAX_COLS, MAX_ROWS};
 use crate::format::{date_to_serial, NumberFormat};
@@ -18,7 +22,7 @@ use crate::formula::{parse, Expr, Syntax};
 use crate::value::{ErrorKind, Value};
 use crate::workbook::{CellStyle, Content, HAlign, PageSetup, PrintArea, Workbook};
 use office_odf::ooxml;
-use office_odf::xml::Element;
+use office_odf::xml::{Element, XmlWriter};
 use office_odf::{Limits, Metadata, OdfError, Package, Result, Rgb};
 use std::collections::HashMap;
 
@@ -452,6 +456,457 @@ pub fn load_xlsx(bytes: &[u8], limits: &Limits) -> Result<Workbook> {
     }
     wb.finish_loading();
     Ok(wb)
+}
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+const MAIN_NS: &str = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+const REL_NS: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+const PKG_REL_NS: &str = "http://schemas.openxmlformats.org/package/2006/relationships";
+const DOC_REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+
+/// Excel format code (and built-in id when there is one) for a format.
+fn format_code(f: &NumberFormat) -> (Option<u32>, String) {
+    let decimals = |d: u8| if d == 0 { String::new() } else { format!(".{}", "0".repeat(usize::from(d))) };
+    match f {
+        NumberFormat::General => (Some(0), "General".into()),
+        NumberFormat::Number { decimals: 0, thousands: false } => (Some(1), "0".into()),
+        NumberFormat::Number { decimals: 2, thousands: false } => (Some(2), "0.00".into()),
+        NumberFormat::Number { decimals: 0, thousands: true } => (Some(3), "#,##0".into()),
+        NumberFormat::Number { decimals: 2, thousands: true } => (Some(4), "#,##0.00".into()),
+        NumberFormat::Number { decimals: d, thousands } => {
+            (None, format!("{}{}", if *thousands { "#,##0" } else { "0" }, decimals(*d)))
+        }
+        NumberFormat::Percent { decimals: 0 } => (Some(9), "0%".into()),
+        NumberFormat::Percent { decimals: 2 } => (Some(10), "0.00%".into()),
+        NumberFormat::Percent { decimals: d } => (None, format!("0{}%", decimals(*d))),
+        NumberFormat::Currency { decimals: d, symbol } => (None, format!("[${symbol}]#,##0{}", decimals(*d))),
+        NumberFormat::Scientific { decimals: d } => (None, format!("0{}E+00", decimals(*d))),
+        NumberFormat::IndianNumber { decimals: d } => (None, format!("#,##,##0{}", decimals(*d))),
+        NumberFormat::Date => (None, "yyyy-mm-dd".into()),
+        NumberFormat::DateDmy => (None, "dd-mm-yyyy".into()),
+        NumberFormat::Time => (None, "hh:mm:ss".into()),
+        NumberFormat::DateTime => (None, "yyyy-mm-dd hh:mm:ss".into()),
+        NumberFormat::Text => (Some(49), "@".into()),
+    }
+}
+
+fn hex_argb(c: Rgb) -> String {
+    format!("FF{}", c.to_hex().trim_start_matches('#').to_uppercase())
+}
+
+/// A sheet name quoted for a reference (`'My sheet'`).
+fn quoted(name: &str) -> String {
+    format!("'{}'", name.replace('\'', "''"))
+}
+
+fn excel_ref(a: CellAddr) -> String {
+    format!("${}${}", crate::address::col_name(a.col), a.row + 1)
+}
+
+/// Shared strings, in order of first use.
+#[derive(Default)]
+struct Strings {
+    list: Vec<String>,
+    index: HashMap<String, usize>,
+}
+
+impl Strings {
+    fn id(&mut self, s: &str) -> usize {
+        if let Some(i) = self.index.get(s) {
+            return *i;
+        }
+        self.list.push(s.to_owned());
+        self.index.insert(s.to_owned(), self.list.len() - 1);
+        self.list.len() - 1
+    }
+}
+
+fn styles_xml(wb: &Workbook, used: &[u32]) -> (String, HashMap<u32, usize>) {
+    // Distinct fonts, fills and formats of the used styles.
+    let mut fonts: Vec<(bool, bool, bool, Option<Rgb>)> = vec![(false, false, false, None)];
+    let mut fills: Vec<Option<Rgb>> = vec![None, None]; // Excel reserves 0 (none) and 1 (gray125)
+    let mut formats: Vec<String> = Vec::new();
+    let mut xfs: Vec<(u32, usize, usize, HAlign)> = vec![(0, 0, 0, HAlign::General)];
+    let mut xf_of = HashMap::from([(0u32, 0usize)]);
+    for id in used {
+        if *id == 0 {
+            continue;
+        }
+        let st = wb.style_by_id(*id);
+        let font = (st.bold, st.italic, st.underline, st.color);
+        let font_id = fonts.iter().position(|f| *f == font).unwrap_or_else(|| {
+            fonts.push(font);
+            fonts.len() - 1
+        });
+        let fill_id = match st.background {
+            None => 0,
+            Some(c) => fills.iter().skip(2).position(|f| *f == Some(c)).map(|i| i + 2).unwrap_or_else(|| {
+                fills.push(Some(c));
+                fills.len() - 1
+            }),
+        };
+        let (builtin, code) = format_code(&st.format);
+        let fmt_id = builtin.unwrap_or_else(|| {
+            let i = formats.iter().position(|f| *f == code).unwrap_or_else(|| {
+                formats.push(code.clone());
+                formats.len() - 1
+            });
+            164 + i as u32
+        });
+        let xf = (fmt_id, font_id, fill_id, st.align);
+        let index = xfs.iter().position(|x| *x == xf).unwrap_or_else(|| {
+            xfs.push(xf);
+            xfs.len() - 1
+        });
+        xf_of.insert(*id, index);
+    }
+    let mut w = XmlWriter::new();
+    w.start("styleSheet").attr("xmlns", MAIN_NS);
+    if !formats.is_empty() {
+        w.start("numFmts").attr("count", &formats.len().to_string());
+        for (i, code) in formats.iter().enumerate() {
+            w.start("numFmt").attr("numFmtId", &(164 + i).to_string()).attr("formatCode", code).end();
+        }
+        w.end();
+    }
+    w.start("fonts").attr("count", &fonts.len().to_string());
+    for (bold, italic, underline, color) in &fonts {
+        w.start("font");
+        if *bold {
+            w.start("b").end();
+        }
+        if *italic {
+            w.start("i").end();
+        }
+        if *underline {
+            w.start("u").end();
+        }
+        w.start("sz").attr("val", "10").end();
+        if let Some(c) = color {
+            w.start("color").attr("rgb", &hex_argb(*c)).end();
+        }
+        w.start("name").attr("val", "Arial").end();
+        w.end();
+    }
+    w.end();
+    w.start("fills").attr("count", &fills.len().to_string());
+    for (i, fill) in fills.iter().enumerate() {
+        w.start("fill").start("patternFill");
+        match (i, fill) {
+            (0, _) => {
+                w.attr("patternType", "none");
+            }
+            (1, _) => {
+                w.attr("patternType", "gray125");
+            }
+            (_, Some(c)) => {
+                w.attr("patternType", "solid");
+                w.start("fgColor").attr("rgb", &hex_argb(*c)).end();
+                w.start("bgColor").attr("indexed", "64").end();
+            }
+            _ => {}
+        }
+        w.end().end();
+    }
+    w.end();
+    w.start("borders").attr("count", "1").start("border");
+    for side in ["left", "right", "top", "bottom", "diagonal"] {
+        w.start(side).end();
+    }
+    w.end().end();
+    w.start("cellStyleXfs").attr("count", "1").start("xf").attr("numFmtId", "0").attr("fontId", "0").attr("fillId", "0").attr("borderId", "0").end().end();
+    w.start("cellXfs").attr("count", &xfs.len().to_string());
+    for (fmt, font, fill, align) in &xfs {
+        w.start("xf")
+            .attr("numFmtId", &fmt.to_string())
+            .attr("fontId", &font.to_string())
+            .attr("fillId", &fill.to_string())
+            .attr("borderId", "0")
+            .attr("xfId", "0");
+        if *fmt != 0 {
+            w.attr("applyNumberFormat", "1");
+        }
+        if *font != 0 {
+            w.attr("applyFont", "1");
+        }
+        if *fill != 0 {
+            w.attr("applyFill", "1");
+        }
+        let horizontal = match align {
+            HAlign::General => None,
+            HAlign::Left => Some("left"),
+            HAlign::Center => Some("center"),
+            HAlign::Right => Some("right"),
+        };
+        if let Some(h) = horizontal {
+            w.attr("applyAlignment", "1");
+            w.start("alignment").attr("horizontal", h).end();
+        }
+        w.end();
+    }
+    w.end();
+    w.start("cellStyles").attr("count", "1").start("cellStyle").attr("name", "Normal").attr("xfId", "0").attr("builtinId", "0").end().end();
+    (w.finish(), xf_of)
+}
+
+fn number_text(n: f64) -> String {
+    if n == n.trunc() && n.abs() < 1e15 { format!("{n:.0}") } else { format!("{n}") }
+}
+
+fn sheet_xml(wb: &Workbook, index: usize, strings: &mut Strings, xf_of: &HashMap<u32, usize>) -> Result<String> {
+    let sheet = wb.sheet(index)?;
+    let page = wb.page();
+    let mut w = XmlWriter::new();
+    w.start("worksheet").attr("xmlns", MAIN_NS).attr("xmlns:r", REL_NS);
+    if page.fit_width {
+        w.start("sheetPr").start("pageSetUpPr").attr("fitToPage", "1").end().end();
+    }
+    if let Some(r) = sheet.used_range() {
+        w.start("dimension").attr("ref", &r.to_a1()).end();
+    }
+    if !sheet.col_widths.is_empty() {
+        w.start("cols");
+        for (col, pt) in &sheet.col_widths {
+            let chars = ((pt / 0.75 - 5.0) / 7.0).max(0.5);
+            w.start("col")
+                .attr("min", &(col + 1).to_string())
+                .attr("max", &(col + 1).to_string())
+                .attr("width", &format!("{chars:.4}"))
+                .attr("customWidth", "1")
+                .end();
+        }
+        w.end();
+    }
+    w.start("sheetData");
+    let mut current: Option<u32> = None;
+    for (addr, cell) in sheet.cells() {
+        if current != Some(addr.row) {
+            if current.is_some() {
+                w.end();
+            }
+            w.start("row").attr("r", &(addr.row + 1).to_string());
+            current = Some(addr.row);
+        }
+        w.start("c").attr("r", &addr.to_a1());
+        if let Some(xf) = xf_of.get(&cell.style).filter(|x| **x != 0) {
+            w.attr("s", &xf.to_string());
+        }
+        match &cell.content {
+            Content::Empty => {}
+            Content::Number(n) => {
+                w.start("v").text(&number_text(*n)).end();
+            }
+            Content::Text(t) => {
+                w.attr("t", "s");
+                w.start("v").text(&strings.id(t).to_string()).end();
+            }
+            Content::Bool(b) => {
+                w.attr("t", "b");
+                w.start("v").text(if *b { "1" } else { "0" }).end();
+            }
+            Content::Formula(expr) => {
+                match &cell.value {
+                    Value::Text(_) => {
+                        w.attr("t", "str");
+                    }
+                    Value::Bool(_) => {
+                        w.attr("t", "b");
+                    }
+                    Value::Error(_) => {
+                        w.attr("t", "e");
+                    }
+                    _ => {}
+                }
+                w.start("f").text(&expr.to_source(Syntax::Excel)).end();
+                match &cell.value {
+                    Value::Number(n) => {
+                        w.start("v").text(&number_text(*n)).end();
+                    }
+                    Value::Text(t) => {
+                        w.start("v").text(t).end();
+                    }
+                    Value::Bool(b) => {
+                        w.start("v").text(if *b { "1" } else { "0" }).end();
+                    }
+                    Value::Error(e) => {
+                        w.start("v").text(&e.to_string()).end();
+                    }
+                    Value::Empty => {}
+                }
+            }
+        }
+        w.end();
+    }
+    if current.is_some() {
+        w.end();
+    }
+    w.end(); // sheetData
+    if page.grid {
+        w.start("printOptions").attr("gridLines", "1").end();
+    }
+    let inches = |pt: f32| format!("{:.4}", pt / 72.0);
+    w.start("pageMargins")
+        .attr("left", &inches(page.margin))
+        .attr("right", &inches(page.margin))
+        .attr("top", &inches(page.margin))
+        .attr("bottom", &inches(page.margin))
+        .attr("header", "0.3")
+        .attr("footer", "0.3")
+        .end();
+    let (short, long) = (page.width.min(page.height), page.width.max(page.height));
+    let close = |a: f32, b: f32| (a - b).abs() < 2.0;
+    let paper = if close(short, 612.0) && close(long, 792.0) {
+        "1"
+    } else if close(short, 612.0) && close(long, 1008.0) {
+        "5"
+    } else if close(short, 841.89) && close(long, 1190.55) {
+        "8"
+    } else if close(short, 419.53) && close(long, 595.28) {
+        "11"
+    } else {
+        "9"
+    };
+    w.start("pageSetup")
+        .attr("paperSize", paper)
+        .attr("orientation", if page.width > page.height { "landscape" } else { "portrait" });
+    if page.fit_width {
+        w.attr("fitToWidth", "1").attr("fitToHeight", "0");
+    } else {
+        w.attr("scale", &page.scale.to_string());
+    }
+    w.end();
+    if page.header_footer {
+        // Sheet name at the top, page number at the bottom, centred.
+        w.start("headerFooter");
+        w.start("oddHeader").text("&C&A").end();
+        w.start("oddFooter").text("&CPage &P").end();
+        w.end();
+    }
+    Ok(w.finish())
+}
+
+/// Serialises a workbook to the bytes of an `.xlsx` file.
+pub fn save_xlsx(wb: &Workbook) -> Result<Vec<u8>> {
+    let mut package = Package::new("");
+    let count = wb.sheet_count();
+    let mut used: Vec<u32> = wb.sheets().iter().flat_map(|s| s.cells().map(|(_, c)| c.style)).collect();
+    used.sort_unstable();
+    used.dedup();
+    let (styles, xf_of) = styles_xml(wb, &used);
+    let mut strings = Strings::default();
+    for i in 0..count {
+        package.insert(format!("xl/worksheets/sheet{}.xml", i + 1), sheet_xml(wb, i, &mut strings, &xf_of)?.into_bytes())?;
+    }
+
+    let mut types = XmlWriter::new();
+    types.start("Types").attr("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+    types.start("Default").attr("Extension", "rels").attr("ContentType", "application/vnd.openxmlformats-package.relationships+xml").end();
+    types.start("Default").attr("Extension", "xml").attr("ContentType", "application/xml").end();
+    let over = |w: &mut XmlWriter, part: &str, kind: &str| {
+        w.start("Override").attr("PartName", part).attr("ContentType", kind).end();
+    };
+    over(&mut types, "/xl/workbook.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
+    for i in 0..count {
+        over(&mut types, &format!("/xl/worksheets/sheet{}.xml", i + 1), "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
+    }
+    over(&mut types, "/xl/styles.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml");
+    over(&mut types, "/xl/sharedStrings.xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml");
+    over(&mut types, "/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml");
+    package.insert("[Content_Types].xml", types.finish().into_bytes())?;
+
+    let mut rels = XmlWriter::new();
+    rels.start("Relationships").attr("xmlns", PKG_REL_NS);
+    rels.start("Relationship").attr("Id", "rId1").attr("Type", &format!("{DOC_REL}/officeDocument")).attr("Target", "xl/workbook.xml").end();
+    rels.start("Relationship")
+        .attr("Id", "rId2")
+        .attr("Type", "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties")
+        .attr("Target", "docProps/core.xml")
+        .end();
+    package.insert("_rels/.rels", rels.finish().into_bytes())?;
+
+    let mut book_rels = XmlWriter::new();
+    book_rels.start("Relationships").attr("xmlns", PKG_REL_NS);
+    for i in 0..count {
+        book_rels
+            .start("Relationship")
+            .attr("Id", &format!("rId{}", i + 1))
+            .attr("Type", &format!("{DOC_REL}/worksheet"))
+            .attr("Target", &format!("worksheets/sheet{}.xml", i + 1))
+            .end();
+    }
+    book_rels.start("Relationship").attr("Id", &format!("rId{}", count + 1)).attr("Type", &format!("{DOC_REL}/styles")).attr("Target", "styles.xml").end();
+    book_rels
+        .start("Relationship")
+        .attr("Id", &format!("rId{}", count + 2))
+        .attr("Type", &format!("{DOC_REL}/sharedStrings"))
+        .attr("Target", "sharedStrings.xml")
+        .end();
+    package.insert("xl/_rels/workbook.xml.rels", book_rels.finish().into_bytes())?;
+
+    let mut book = XmlWriter::new();
+    book.start("workbook").attr("xmlns", MAIN_NS).attr("xmlns:r", REL_NS);
+    book.start("workbookPr").end();
+    book.start("bookViews").start("workbookView").end().end();
+    book.start("sheets");
+    for (i, sheet) in wb.sheets().iter().enumerate() {
+        book.start("sheet")
+            .attr("name", &sheet.name)
+            .attr("sheetId", &(i + 1).to_string())
+            .attr("r:id", &format!("rId{}", i + 1))
+            .end();
+    }
+    book.end();
+    let names: Vec<(usize, &str, String)> = wb
+        .sheets()
+        .iter()
+        .enumerate()
+        .flat_map(|(i, sheet)| {
+            let area = sheet.print_area();
+            let q = quoted(&sheet.name);
+            let range = area.range.map(|r| (i, "_xlnm.Print_Area", format!("{q}!{}:{}", excel_ref(r.start), excel_ref(r.end))));
+            let titles = area.repeat_rows.map(|(a, b)| (i, "_xlnm.Print_Titles", format!("{q}!${}:${}", a + 1, b + 1)));
+            range.into_iter().chain(titles)
+        })
+        .collect();
+    if !names.is_empty() {
+        book.start("definedNames");
+        for (i, name, value) in &names {
+            book.start("definedName").attr("name", name).attr("localSheetId", &i.to_string()).text(value).end();
+        }
+        book.end();
+    }
+    package.insert("xl/workbook.xml", book.finish().into_bytes())?;
+
+    package.insert("xl/styles.xml", styles.into_bytes())?;
+    let mut sst = XmlWriter::new();
+    sst.start("sst").attr("xmlns", MAIN_NS).attr("count", &strings.list.len().to_string()).attr("uniqueCount", &strings.list.len().to_string());
+    for s in &strings.list {
+        sst.start("si").start("t");
+        if s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace) || s.contains('\n') {
+            sst.attr("xml:space", "preserve");
+        }
+        sst.text(s).end().end();
+    }
+    package.insert("xl/sharedStrings.xml", sst.finish().into_bytes())?;
+    package.insert("docProps/core.xml", core_xml(&wb.meta).into_bytes())?;
+    package.write_plain()
+}
+
+/// `docProps/core.xml` with the title, subject and author.
+pub(crate) fn core_xml(meta: &Metadata) -> String {
+    let mut w = XmlWriter::new();
+    w.start("cp:coreProperties")
+        .attr("xmlns:cp", "http://schemas.openxmlformats.org/package/2006/metadata/core-properties")
+        .attr("xmlns:dc", "http://purl.org/dc/elements/1.1/");
+    for (name, value) in [("dc:title", &meta.title), ("dc:subject", &meta.subject), ("dc:creator", &meta.creator)] {
+        if let Some(v) = value {
+            w.start(name).text(v).end();
+        }
+    }
+    w.finish()
 }
 
 #[cfg(test)]

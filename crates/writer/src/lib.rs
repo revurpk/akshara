@@ -8,7 +8,7 @@
 //! * [`Document`]: validated editing operations addressed in UTF-16 offsets,
 //!   with coalescing undo/redo, find and replace;
 //! * [`load_odt`] / [`save_odt`]: OpenDocument Text import and export;
-//! * [`load_docx`]: Microsoft Word (`.docx`) import;
+//! * [`load_docx`] / [`save_docx`]: Microsoft Word (`.docx`) import and export;
 //! * [`export`]: plain text import, and text, HTML and Markdown export;
 //! * [`pdf`]: PDF output from page images, for printing;
 //! * builders for envelopes, index cards, label sheets and letterheads
@@ -43,7 +43,7 @@ pub use model::{
     label_sheet, paper_size, sanitize_link, Align, AttrPatch, Block, Field, LabelSheet, Letterhead, PageSetup, PaperKind,
     PaperSize, ParaKind, Paragraph, Run, Stats, Table, TextAttrs, LABEL_SHEETS, PAPER_SIZES,
 };
-pub use docx::load_docx;
+pub use docx::{load_docx, save_docx};
 pub use odt::{load_odt, save_odt};
 
 use office_odf::{Limits, Result};

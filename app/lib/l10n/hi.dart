@@ -343,4 +343,6 @@ const Map<String, String> hiStrings = {
   "Rows to repeat": "दोहराई जाने वाली पंक्तियाँ",
   "None": "कोई नहीं",
   "Clear": "साफ़ करें",
+  "Word document": "वर्ड दस्तावेज़",
+  "Excel workbook": "एक्सेल वर्कबुक",
 };

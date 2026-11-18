@@ -343,4 +343,6 @@ const Map<String, String> orStrings = {
   "Rows to repeat": "ପୁନରାବୃତ୍ତ ଧାଡ଼ି",
   "None": "କିଛି ନାହିଁ",
   "Clear": "ସଫା କରନ୍ତୁ",
+  "Word document": "ୱାର୍ଡ ଦଲିଲ",
+  "Excel workbook": "ଏକ୍ସେଲ ୱର୍କବୁକ",
 };

@@ -343,4 +343,6 @@ const Map<String, String> knStrings = {
   "Rows to repeat": "ಪುನರಾವರ್ತಿಸುವ ಸಾಲುಗಳು",
   "None": "ಯಾವುದೂ ಇಲ್ಲ",
   "Clear": "ತೆರವುಗೊಳಿಸಿ",
+  "Word document": "ವರ್ಡ್ ದಾಖಲೆ",
+  "Excel workbook": "ಎಕ್ಸೆಲ್ ವರ್ಕ್‌ಬುಕ್",
 };

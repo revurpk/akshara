@@ -351,6 +351,13 @@ void main() {
     // Imported, not opened in place: saving offers ODF under the same name.
     final doc = OpenDoc(0, DocKind.calc, null)..importedFrom = '/x/sample.xlsx';
     expect(doc.suggestedSaveName, 'sample.ods');
+    // Word and Excel are offered for saving, and become the document's home.
+    expect(DocKind.writer.saveFormats.keys, contains('docx'));
+    expect(DocKind.calc.saveFormats.keys, contains('xlsx'));
+    expect(doc.keepsEverything('xlsx'), isTrue);
+    expect(doc.keepsEverything('csv'), isFalse);
+    expect(OpenDoc(0, DocKind.writer, '/x/a.docx').hasNativePath, isTrue);
+    expect(OpenDoc(0, DocKind.writer, '/x/a.txt').hasNativePath, isFalse);
   }, skip: skip != null);
 
   testWidgets('calc: typing into the grid enters values and formulas', (tester) async {

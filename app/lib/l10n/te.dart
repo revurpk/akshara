@@ -343,4 +343,6 @@ const Map<String, String> teStrings = {
   "Rows to repeat": "పునరావృతమయ్యే అడ్డు వరుసలు",
   "None": "ఏదీ లేదు",
   "Clear": "తుడిచివేయి",
+  "Word document": "వర్డ్ పత్రం",
+  "Excel workbook": "ఎక్సెల్ వర్క్‌బుక్",
 };

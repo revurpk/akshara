@@ -703,3 +703,44 @@ fn header_and_footer_from_openoffice_are_read() {
     assert!(matches!(&doc.blocks()[0], Block::Paragraph(p) if p.align == Align::Right));
 }
 
+
+#[test]
+fn docx_round_trip_preserves_the_model() {
+    let doc = rich_document();
+    let bytes = save_docx(&doc).expect("save");
+    let back = load_docx(&bytes, &Limits::default()).expect("load");
+    for (i, (a, b)) in doc.blocks().iter().zip(back.blocks()).enumerate() {
+        assert_eq!(a, b, "block {i}");
+    }
+    assert_eq!(back.blocks().len(), doc.blocks().len());
+    assert_eq!(back.header(), doc.header());
+    assert_eq!(back.footer(), doc.footer());
+    assert!((back.page().width - 612.0).abs() < 0.1 && (back.page().margin - 72.0).abs() < 0.1);
+    assert_eq!(back.meta.title.as_deref(), Some("Rich"));
+    assert_eq!(save_docx(&back).expect("save again"), bytes, "stable output");
+    // An Office package: no ODF entries, content types first.
+    let pkg = Package::read(&bytes, &Limits::default()).expect("zip");
+    assert_eq!(pkg.mimetype(), "");
+    assert!(!pkg.entry_names().any(|n| n.starts_with("META-INF")));
+    assert!(pkg.get("word/header1.xml").is_some() && pkg.get("word/footer1.xml").is_some());
+}
+
+#[test]
+fn docx_numbered_lists_restart_like_in_the_editor() {
+    let blocks = vec![
+        Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "a1")),
+        Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "a2")),
+        Block::Paragraph(Paragraph::plain("between")),
+        Block::Paragraph(Paragraph::with_kind(ParaKind::Numbered { level: 0 }, "b1")),
+    ];
+    let doc = Document::from_blocks(blocks);
+    let bytes = save_docx(&doc).expect("save");
+    let pkg = Package::read(&bytes, &Limits::default()).expect("zip");
+    let xml = String::from_utf8(pkg.get("word/document.xml").expect("document").to_vec()).expect("utf8");
+    // Two separate numbered lists: numIds 2 and 3, each restarting at 1.
+    assert!(xml.contains("w:numId w:val=\"2\"") && xml.contains("w:numId w:val=\"3\""));
+    let numbering = String::from_utf8(pkg.get("word/numbering.xml").expect("numbering").to_vec()).expect("utf8");
+    assert_eq!(numbering.matches("<w:startOverride").count(), 2 * 9);
+    let back = load_docx(&bytes, &Limits::default()).expect("load");
+    assert_eq!(back.blocks(), doc.blocks());
+}

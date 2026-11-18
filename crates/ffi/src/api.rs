@@ -411,10 +411,12 @@ impl Registry {
     fn save_bytes(doc: &mut Doc, ext: &str, a: &Args) -> R<Vec<u8>> {
         let bytes = match (doc, ext) {
             (Doc::Writer(d), "odt") => writer::save_odt(d)?,
+            (Doc::Writer(d), "docx") => writer::save_docx(d)?,
             (Doc::Writer(d), "txt") => d.plain_text().into_bytes(),
             (Doc::Writer(d), "html" | "htm") => writer::export::to_html(d).into_bytes(),
             (Doc::Writer(d), "md") => writer::export::to_markdown(d).into_bytes(),
             (Doc::Calc(d), "ods") => calc::save_ods(d)?,
+            (Doc::Calc(d), "xlsx") => calc::save_xlsx(d)?,
             (Doc::Calc(d), "csv" | "tsv") => {
                 let sheet = a.0.get("sheet").and_then(Value::as_u64).unwrap_or(0) as usize;
                 let delimiter = if ext == "tsv" { '\t' } else { ',' };
@@ -430,10 +432,11 @@ impl Registry {
     }
 
     fn mark_saved(doc: &mut Doc, ext: &str) {
-        // Only the native formats are lossless enough to clear "modified".
+        // The native formats, and Word / Excel (which keep everything the
+        // model holds), clear "modified"; exports to text, HTML etc. do not.
         match (doc, ext) {
-            (Doc::Writer(d), "odt") => d.mark_saved(),
-            (Doc::Calc(d), "ods") => d.mark_saved(),
+            (Doc::Writer(d), "odt" | "docx") => d.mark_saved(),
+            (Doc::Calc(d), "ods" | "xlsx") => d.mark_saved(),
             _ => {}
         }
     }

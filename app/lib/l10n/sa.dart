@@ -343,4 +343,6 @@ const Map<String, String> saStrings = {
   "Rows to repeat": "पुनरावर्तनीयाः पङ्क्तयः",
   "None": "किमपि न",
   "Clear": "निर्मलीकरोतु",
+  "Word document": "वर्ड-लेखः",
+  "Excel workbook": "एक्सेल-कार्यपुस्तिका",
 };
