@@ -68,8 +68,10 @@ Fetched tools go to `%LOCALAPPDATA%\Akshara\build-tools` (change with
 `-ToolsDir`) and are reused next time. Apart from the Visual Studio Build
 Tools, nothing needs administrator rights. Every download is over HTTPS and
 is verified before use: rustup and Flutter by their published SHA-256 sums,
-MinGit by GitHub's asset digest, and the installers by their Authenticode
-signatures.
+MinGit and Inno Setup (from their official GitHub releases) by GitHub's
+SHA-256 asset digests, and the installers also by their Authenticode
+signatures. If GitHub's anonymous API limit (60 requests an hour) is hit,
+set `GITHUB_TOKEN`.
 
 | Option | Effect |
 |---|---|

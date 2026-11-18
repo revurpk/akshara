@@ -23,9 +23,11 @@
     elevation, so it runs only when -InstallVsBuildTools is given.
 
     Every download uses HTTPS and is verified before use: rustup and Flutter
-    against their published SHA-256 sums, MinGit against GitHub's asset
-    digest, and the Inno Setup and Build Tools installers by their Authenticode
-    signatures. Tools found in -ToolsDir are reused on later runs. The only
+    against their published SHA-256 sums, MinGit and Inno Setup (both from
+    their official GitHub releases) against GitHub's asset digests, and the
+    Inno Setup and Build Tools installers also by their Authenticode
+    signatures. Set GITHUB_TOKEN to avoid GitHub's anonymous API rate limit.
+    Tools found in -ToolsDir are reused on later runs. The only
     persistent change outside -ToolsDir is rustup's own (~\.cargo and the user
     PATH).
 
@@ -131,6 +133,22 @@ function Get-Download([string]$Url, [string]$FileName) {
     }
 }
 
+# Calls the GitHub REST API; set GITHUB_TOKEN to avoid the anonymous rate limit.
+function Invoke-GitHubApi([string]$Path) {
+    $headers = @{ 'User-Agent' = 'akshara-build'; 'Accept' = 'application/vnd.github+json' }
+    if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $env:GITHUB_TOKEN" }
+    return Invoke-RestMethod -UseBasicParsing -Uri "https://api.github.com/$Path" -Headers $headers
+}
+
+# Verifies a download against the "sha256:..." digest GitHub publishes for a release asset.
+function Assert-GitHubDigest([string]$Path, $Asset) {
+    if (-not ($Asset.PSObject.Properties['digest'] -and $Asset.digest -like 'sha256:*')) {
+        Remove-Item -Force $Path
+        throw "GitHub published no SHA-256 digest for $($Asset.name); refusing to use it."
+    }
+    Assert-Sha256 $Path ($Asset.digest -replace '^sha256:', '')
+}
+
 function Assert-Sha256([string]$Path, [string]$Expected) {
     $actual = (Get-FileHash -Algorithm SHA256 -Path $Path).Hash
     if ($actual -ne $Expected.Trim().ToUpperInvariant()) {
@@ -140,14 +158,18 @@ function Assert-Sha256([string]$Path, [string]$Expected) {
     Write-Host "    sha256 verified"
 }
 
-function Assert-Signed([string]$Path, [string[]]$ExpectedSigners) {
+# Requires a valid Authenticode signature, optionally from one of the named publishers.
+function Assert-Signed([string]$Path, [string[]]$ExpectedSigners = @()) {
     $sig = Get-AuthenticodeSignature -FilePath $Path
     $subject = ''
     if ($sig.SignerCertificate) { $subject = $sig.SignerCertificate.Subject }
-    $known = @($ExpectedSigners | Where-Object { $subject -like "*$_*" }).Count -gt 0
+    $known = (-not $ExpectedSigners) -or
+        (@($ExpectedSigners | Where-Object { $subject -like "*$_*" }).Count -gt 0)
     if ($sig.Status -ne 'Valid' -or -not $known) {
         Remove-Item -Force $Path
-        throw "$(Split-Path -Leaf $Path) is not validly signed by $($ExpectedSigners -join ' or ') " +
+        $who = 'a trusted publisher'
+        if ($ExpectedSigners) { $who = $ExpectedSigners -join ' or ' }
+        throw "$(Split-Path -Leaf $Path) is not validly signed by $who " +
             "(status: $($sig.Status), signer: '$subject')."
     }
     Write-Host "    signature verified: $($sig.SignerCertificate.Subject)"
@@ -249,16 +271,11 @@ function Ensure-Git {
     if ($git) { Write-Ok "Git: $git"; return }
     Write-Missing 'Git (the Flutter tool needs it)'
     Assert-CanDownload 'Git' 'Install Git for Windows from https://git-scm.com/download/win (a per-user install is offered).'
-    $release = Invoke-RestMethod -UseBasicParsing -Uri 'https://api.github.com/repos/git-for-windows/git/releases/latest' `
-        -Headers @{ 'User-Agent' = 'akshara-build' }
+    $release = Invoke-GitHubApi 'repos/git-for-windows/git/releases/latest'
     $asset = $release.assets | Where-Object { $_.name -match '^MinGit-[\d.]+-64-bit\.zip$' } | Select-Object -First 1
     if (-not $asset) { throw 'Could not find a MinGit download in the latest Git for Windows release.' }
     $zip = Get-Download $asset.browser_download_url $asset.name
-    if ($asset.PSObject.Properties['digest'] -and $asset.digest -like 'sha256:*') {
-        Assert-Sha256 $zip ($asset.digest -replace '^sha256:', '')
-    } else {
-        Write-Warning 'GitHub did not publish a digest for MinGit; relying on HTTPS only.'
-    }
+    Assert-GitHubDigest $zip $asset
     Expand-Zip $zip (Join-Path $ToolsDir 'mingit')
     Add-ToPath $mingit
     Write-Ok "Git: $(Find-Command 'git')"
@@ -314,11 +331,14 @@ function Ensure-Flutter {
 function Find-Iscc {
     $candidates = @(
         (Find-Command 'iscc'),
-        (Join-Path $ToolsDir 'innosetup\ISCC.exe'),
-        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
-        (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
-        (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe')
+        (Join-Path $ToolsDir 'innosetup\ISCC.exe')
     )
+    # An existing Inno Setup 6 or 7 install works too; akshara.iss uses only 6.x features.
+    foreach ($v in @('6', '7')) {
+        $candidates += (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup $v\ISCC.exe")
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} "Inno Setup $v\ISCC.exe")
+        $candidates += (Join-Path $env:ProgramFiles "Inno Setup $v\ISCC.exe")
+    }
     foreach ($c in $candidates) { if ($c -and (Test-Path $c)) { return $c } }
     return $null
 }
@@ -328,8 +348,19 @@ function Ensure-InnoSetup {
     if ($iscc) { Write-Ok "Inno Setup: $iscc"; return $iscc }
     Write-Missing 'Inno Setup 6'
     Assert-CanDownload 'Inno Setup 6' 'Install it from https://jrsoftware.org/isdl.php and choose "Install for me only".'
-    $installer = Get-Download 'https://jrsoftware.org/download.php/is.exe' 'innosetup-setup.exe'
-    Assert-Signed $installer @('Jordan Russell', 'JRSoftware', 'Martijn Laan')
+    # Official installers are published as immutable GitHub releases with SHA-256
+    # digests. Take the newest stable 6.x release (the line akshara.iss targets).
+    $releases = Invoke-GitHubApi 'repos/jrsoftware/issrc/releases?per_page=50'
+    $release = $releases |
+        Where-Object { -not $_.prerelease -and -not $_.draft -and $_.tag_name -match '^is-6_\d+_\d+$' } |
+        Sort-Object { [version](($_.tag_name -replace '^is-', '') -replace '_', '.') } -Descending |
+        Select-Object -First 1
+    if (-not $release) { throw 'Could not find an Inno Setup 6 release on GitHub (jrsoftware/issrc).' }
+    $asset = $release.assets | Where-Object { $_.name -match '^innosetup-6\.\d+\.\d+\.exe$' } | Select-Object -First 1
+    if (-not $asset) { throw "Release $($release.tag_name) has no Inno Setup installer." }
+    $installer = Get-Download $asset.browser_download_url $asset.name
+    Assert-GitHubDigest $installer $asset
+    Assert-Signed $installer
     $dir = Join-Path $ToolsDir 'innosetup'
     $isArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/CURRENTUSER',
         '/NOICONS', "/DIR=`"$dir`"")
