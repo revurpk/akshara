@@ -545,6 +545,7 @@ class WriterPageState extends State<WriterPage> {
         header: paras(got['header']),
         footer: paras(got['footer']),
         page: got['page'] as Map<String, dynamic>,
+        paper: got['paper'] as String?,
         title: widget.doc.title,
       ),
       // Phones and tablets have no print spooler to talk to: export only.
@@ -974,7 +975,17 @@ class WriterPageState extends State<WriterPage> {
         );
     return PopupMenuButton<String>(
       tooltip: t('Page layout'),
-      icon: const Icon(Icons.article_outlined),
+      // Labelled, so page setup, header, footer and the envelope, label and
+      // index card wizards are easy to find.
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.article_outlined),
+          const SizedBox(width: 6),
+          Text(t('Page')),
+          const Icon(Icons.arrow_drop_down),
+        ]),
+      ),
       itemBuilder: (_) => [
         item('setup', Icons.crop_portrait, t('Page setup…')),
         item('header', Icons.vertical_align_top, t('Header'), checked: _header.isNotEmpty),

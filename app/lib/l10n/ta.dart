@@ -325,4 +325,10 @@ const Map<String, String> taStrings = {
   "Width (mm)": "அகலம் (மி.மீ.)",
   "{n} page(s)": "{n} பக்கங்கள்",
   "{n} per sheet": "தாளுக்கு {n}",
+  "Envelope…": "உறை…",
+  "Labels…": "லேபிள்கள்…",
+  "Index cards…": "குறிப்பு அட்டைகள்…",
+  "Page": "பக்கம்",
+  "Print…": "அச்சிடு…",
+  "Sent to the printer.": "அச்சுப்பொறிக்கு அனுப்பப்பட்டது.",
 };

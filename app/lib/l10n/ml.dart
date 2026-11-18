@@ -325,4 +325,10 @@ const Map<String, String> mlStrings = {
   "Width (mm)": "വീതി (മി.മീ.)",
   "{n} page(s)": "{n} പേജുകൾ",
   "{n} per sheet": "ഷീറ്റിന് {n}",
+  "Envelope…": "കവർ…",
+  "Labels…": "ലേബലുകൾ…",
+  "Index cards…": "സൂചിക കാർഡുകൾ…",
+  "Page": "പേജ്",
+  "Print…": "അച്ചടിക്കുക…",
+  "Sent to the printer.": "പ്രിന്ററിലേക്ക് അയച്ചു.",
 };

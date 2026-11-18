@@ -184,6 +184,23 @@ void main() {
     await tester.pumpAndSettle();
   }, skip: skip != null);
 
+  testWidgets('the + menu offers envelopes, labels and index cards', (tester) async {
+    await tester.pumpWidget(const AksharaApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('New document'));
+    await tester.pumpAndSettle();
+    expect(find.text('Envelope…'), findsOneWidget);
+    expect(find.text('Labels…'), findsOneWidget);
+    await tester.tap(find.text('Index cards…'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Create')));
+    await tester.pumpAndSettle();
+    // The cards open as a new Writer tab with the labelled Page menu.
+    expect(find.byType(WriterPage), findsOneWidget);
+    expect(find.text('Page'), findsOneWidget);
+    expect(find.textContaining('Untitled Text Document'), findsOneWidget);
+  }, skip: skip != null);
+
   testWidgets('writer: envelope wizard opens the envelope as a new document', (tester) async {
     final doc = newDoc(DocKind.writer);
     int? created;

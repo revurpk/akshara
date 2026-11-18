@@ -325,4 +325,10 @@ const Map<String, String> teStrings = {
   "Width (mm)": "వెడల్పు (మి.మీ.)",
   "{n} page(s)": "{n} పేజీలు",
   "{n} per sheet": "షీట్‌కు {n}",
+  "Envelope…": "కవరు…",
+  "Labels…": "లేబుళ్లు…",
+  "Index cards…": "సూచిక కార్డులు…",
+  "Page": "పేజీ",
+  "Print…": "ముద్రించు…",
+  "Sent to the printer.": "ప్రింటర్‌కు పంపబడింది.",
 };

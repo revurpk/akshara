@@ -325,4 +325,10 @@ const Map<String, String> hiStrings = {
   "Width (mm)": "चौड़ाई (मिमी)",
   "{n} page(s)": "{n} पृष्ठ",
   "{n} per sheet": "प्रति शीट {n}",
+  "Envelope…": "लिफ़ाफ़ा…",
+  "Labels…": "लेबल…",
+  "Index cards…": "सूची कार्ड…",
+  "Page": "पृष्ठ",
+  "Print…": "मुद्रित करें…",
+  "Sent to the printer.": "मुद्रक को भेजा गया।",
 };

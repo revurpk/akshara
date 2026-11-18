@@ -325,4 +325,10 @@ const Map<String, String> saStrings = {
   "Width (mm)": "विस्तारः (मि.मी.)",
   "{n} page(s)": "{n} पृष्ठानि",
   "{n} per sheet": "प्रतिपत्रं {n}",
+  "Envelope…": "आवरणम्…",
+  "Labels…": "लेबलानि…",
+  "Index cards…": "सूचीपत्रिकाः…",
+  "Page": "पृष्ठम्",
+  "Print…": "मुद्रयतु…",
+  "Sent to the printer.": "मुद्रकं प्रेषितम्।",
 };

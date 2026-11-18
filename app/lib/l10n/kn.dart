@@ -325,4 +325,10 @@ const Map<String, String> knStrings = {
   "Width (mm)": "ಅಗಲ (ಮಿ.ಮೀ.)",
   "{n} page(s)": "{n} ಪುಟಗಳು",
   "{n} per sheet": "ಹಾಳೆಗೆ {n}",
+  "Envelope…": "ಲಕೋಟೆ…",
+  "Labels…": "ಲೇಬಲ್‌ಗಳು…",
+  "Index cards…": "ಸೂಚಿ ಕಾರ್ಡ್‌ಗಳು…",
+  "Page": "ಪುಟ",
+  "Print…": "ಮುದ್ರಿಸಿ…",
+  "Sent to the printer.": "ಮುದ್ರಕಕ್ಕೆ ಕಳುಹಿಸಲಾಗಿದೆ.",
 };

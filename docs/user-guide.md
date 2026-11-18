@@ -124,26 +124,29 @@ Each paragraph is edited directly on the page.
 | Alignment | left, centre, right, justify |
 | Tables | *Insert table* (e.g. `3 x 4`); Tab moves to the next cell and adds a row at the end; right-click or long-press a cell for row and column commands |
 | Page break | *Insert page break*; each page is shown as its own sheet |
-| Page size, orientation, margins | *Page layout* menu → *Page setup…* (A4, A5, A3, Letter, Legal, envelopes, index cards, or custom) |
-| Header and footer | *Page layout* → *Header* / *Footer*; type on the first page, other pages show a copy (click it to edit) |
-| Page numbers | *Page layout* → *Insert page number* / *Insert page count* (fields, shaded grey on screen) |
-| Letterhead | *Page layout* → *Letterhead…*: your name, address and contact details become the header and footer |
-| Envelope | *Page layout* → *New envelope…*: pick DL, C6, C5, C4 or #10, type the addresses; opens as a new document |
-| Labels | *Page layout* → *New labels…*: pick an Avery sheet (L7160, L7163, L7173, L7651, 5160, 5163, 5167); the same text on every label, or one label per entry separated by blank lines |
-| Index cards | *Page layout* → *New index cards…*: 3 × 5, 4 × 6, 5 × 8 in or A7, one card per page |
-| Print | Ctrl+P or the printer button: a preview, then the printer and number of copies |
-| PDF | *Page layout* → *Export as PDF…*, or *Export as PDF* in the print preview |
+| Page size, orientation, margins | *Page ▾* menu → *Page setup…* (A4, A5, A3, Letter, Legal, envelopes, index cards, or custom) |
+| Header and footer | *Page ▾* → *Header* / *Footer*; type on the first page, other pages show a copy (click it to edit) |
+| Page numbers | *Page ▾* → *Insert page number* / *Insert page count* (fields, shaded grey on screen) |
+| Letterhead | *Page ▾* → *Letterhead…*: your name, address and contact details become the header and footer |
+| Envelope | **+** → *Envelope…* (or *Page ▾* → *New envelope…*): pick DL, C6, C5, C4 or #10, type the addresses; opens as a new document |
+| Labels | **+** → *Labels…* (or *Page ▾* → *New labels…*): pick an Avery sheet (L7160, L7163, L7173, L7651, 5160, 5163, 5167); the same text on every label, or one label per entry separated by blank lines |
+| Index cards | **+** → *Index cards…* (or *Page ▾* → *New index cards…*): 3 × 5, 4 × 6, 5 × 8 in or A7, one card per page |
+| Print | Ctrl+P or the printer button: a preview, then your system's print dialog |
+| PDF | *Page ▾* → *Export as PDF…*, or *Export as PDF* in the print preview |
 | Find & replace | Ctrl+F |
 | Undo / redo | Ctrl+Z / Ctrl+Y (typing in one paragraph is undone as one step) |
 
 The status bar shows word, character and paragraph counts, plus zoom. Links
 can only use `http`, `https` or `mailto`.
 
-**Printing.** Pages are drawn by Akshara itself (so every script prints
-exactly as on screen) at 200 dpi and sent as a PDF to the system's print
-queue: `lp` on Linux and macOS, with a choice of printer. On Windows, and
-where no print queue is set up, the PDF opens in your PDF viewer to print
-from there. Phones and tablets offer PDF export. Pages break only at page
+**Printing.** Pages are drawn by Akshara itself, so every script prints
+exactly as on screen. *Print…* in the preview opens your system's print
+dialog, with its printers, copies, page range and printer preferences;
+the document's paper size and orientation are preselected. On Windows the
+pages go straight to the printer at its resolution (up to 300 dpi); on
+Linux GTK's print dialog sends a 200 dpi PDF to the chosen printer. On
+macOS you pick the printer and copies in the preview and the PDF goes to
+the print queue (`lp`). Phones and tablets offer PDF export. Pages break only at page
 breaks and where the text no longer fits, between paragraphs and table
 rows; a single paragraph taller than a page is cut off. Label sheets print
 at the exact label positions: check "actual size" (no scaling) in the

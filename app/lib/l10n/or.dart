@@ -325,4 +325,10 @@ const Map<String, String> orStrings = {
   "Width (mm)": "ପ୍ରସ୍ଥ (ମି.ମି.)",
   "{n} page(s)": "{n} ପୃଷ୍ଠା",
   "{n} per sheet": "ସିଟ ପିଛା {n}",
+  "Envelope…": "ଲଫାପା…",
+  "Labels…": "ଲେବଲ…",
+  "Index cards…": "ସୂଚୀ କାର୍ଡ…",
+  "Page": "ପୃଷ୍ଠା",
+  "Print…": "ମୁଦ୍ରଣ କରନ୍ତୁ…",
+  "Sent to the printer.": "ପ୍ରିଣ୍ଟରକୁ ପଠାଗଲା।",
 };

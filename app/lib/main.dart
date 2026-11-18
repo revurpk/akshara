@@ -21,6 +21,7 @@ import 'core/native.dart';
 import 'core/paths.dart';
 import 'core/translit.dart';
 import 'math/math_page.dart';
+import 'writer/page_dialogs.dart';
 import 'writer/writer_page.dart';
 
 /// Brand colours: saffron (see core/look.dart) and palm-leaf cream.
@@ -220,6 +221,20 @@ class ShellState extends State<Shell> {
       _add(doc);
     } on CoreError catch (e) {
       showError(context, t('Cannot create document'), e);
+    }
+  }
+
+  /// Runs the envelope / labels / index cards wizard and opens the result.
+  Future<void> newFromTemplate(String id) async {
+    try {
+      final handle = await switch (id) {
+        'envelope' => showEnvelopeDialog(context),
+        'labels' => showLabelsDialog(context),
+        _ => showIndexCardsDialog(context),
+      };
+      if (handle != null && mounted) adoptDocument(handle, DocKind.writer);
+    } on CoreError catch (e) {
+      if (mounted) showError(context, t('Cannot create document'), e);
     }
   }
 
@@ -473,7 +488,7 @@ class ShellState extends State<Shell> {
                 ],
               ),
             ),
-            PopupMenuButton<DocKind>(
+            PopupMenuButton<Object>(
               tooltip: t('New document'),
               icon: const Icon(Icons.add),
               itemBuilder: (_) => [
@@ -485,8 +500,22 @@ class ShellState extends State<Shell> {
                       title: Text('${k.label} (${k.app})'),
                     ),
                   ),
+                const PopupMenuDivider(),
+                // Writer templates that open as new documents.
+                for (final (id, icon, label) in [
+                  ('envelope', Icons.mail_outline, t('Envelope…')),
+                  ('labels', Icons.label_outline, t('Labels…')),
+                  ('cards', Icons.style_outlined, t('Index cards…')),
+                ])
+                  PopupMenuItem(
+                    value: id,
+                    child: ListTile(
+                      leading: Icon(icon, color: DocKind.writer.color),
+                      title: Text(label),
+                    ),
+                  ),
               ],
-              onSelected: newDocument,
+              onSelected: (v) => v is DocKind ? newDocument(v) : newFromTemplate(v as String),
             ),
             IconButton(
               tooltip: t('Open… (Ctrl+O)'),

@@ -325,4 +325,10 @@ const Map<String, String> bnStrings = {
   "Width (mm)": "প্রস্থ (মিমি)",
   "{n} page(s)": "{n}টি পৃষ্ঠা",
   "{n} per sheet": "প্রতি শিটে {n}",
+  "Envelope…": "খাম…",
+  "Labels…": "লেবেল…",
+  "Index cards…": "সূচি কার্ড…",
+  "Page": "পৃষ্ঠা",
+  "Print…": "মুদ্রণ করুন…",
+  "Sent to the printer.": "প্রিন্টারে পাঠানো হয়েছে।",
 };

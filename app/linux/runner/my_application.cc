@@ -45,6 +45,10 @@ static void my_application_activate(GApplication* application) {
   gtk_window_set_title(window, "Akshara Office");
 
   g_autoptr(FlDartProject) project = fl_dart_project_new();
+  // Run Dart on the GTK thread, so the app can show GTK's own print dialog
+  // through dart:ffi (GTK must only be used from its main thread). This is
+  // the documented future default.
+  fl_dart_project_set_ui_thread_policy(project, FL_UI_THREAD_POLICY_RUN_ON_PLATFORM_THREAD);
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);
 

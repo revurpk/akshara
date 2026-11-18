@@ -3,9 +3,11 @@
 // Pages are laid out by Flutter with the same fonts and shaping as the
 // editor: blocks are measured off stage, distributed over pages (tables
 // split between rows), and each page is rasterised at print resolution.
-// The core wraps the page images into a PDF, which goes to the operating
-// system's print spooler (`lp` on Linux and macOS) or, where there is none,
-// opens in the PDF viewer. No plugins, no network.
+// Printing uses the operating system's print dialog (system_print.dart):
+// on Windows the pages are drawn straight to the printer, on Linux the core
+// wraps the page images into a PDF for GTK's print job. macOS (and Linux
+// without GTK) send the PDF to `lp` with the printer chosen here, or open
+// it in the PDF viewer. No plugins, no network.
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -17,6 +19,7 @@ import '../core/file_dialog.dart';
 import '../core/native.dart';
 import '../l10n/l10n.dart';
 import 'page_view.dart';
+import 'system_print.dart';
 
 /// Print resolution in dots per inch.
 const printDpi = 200.0;
@@ -26,12 +29,15 @@ const areaGap = 7.2;
 
 /// What to print: the JSON of `writer.get`.
 class PrintSource {
-  PrintSource({required this.blocks, required this.header, required this.footer, required this.page, this.title});
+  PrintSource({required this.blocks, required this.header, required this.footer, required this.page, this.paper, this.title});
 
   final List<dynamic> blocks;
   final List<Map<String, dynamic>> header;
   final List<Map<String, dynamic>> footer;
   final Map<String, dynamic> page;
+
+  /// Paper size id from the core (`a4`, `env_dl`...), or null if custom.
+  final String? paper;
   final String? title;
 
   double get width => (page['width'] as num).toDouble();
@@ -136,13 +142,17 @@ class _PrintPreviewState extends State<PrintPreview> {
   int _copies = 1;
   bool _busy = false;
 
-  bool get _canSpool => !widget.pdfOnly && (Platform.isLinux || Platform.isMacOS) && _printers.isNotEmpty;
+  /// The system print dialog: Windows always, Linux when GTK provides it.
+  late final bool _systemDialog = !widget.pdfOnly && (Platform.isWindows || (Platform.isLinux && gtkPrintAvailable));
+
+  /// Fallback: the printer is chosen here and the PDF goes to `lp`.
+  bool get _canSpool => !widget.pdfOnly && !_systemDialog && (Platform.isLinux || Platform.isMacOS) && _printers.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _paginate());
-    if (!widget.pdfOnly && (Platform.isLinux || Platform.isMacOS)) _loadPrinters();
+    if (!widget.pdfOnly && !_systemDialog && (Platform.isLinux || Platform.isMacOS)) _loadPrinters();
   }
 
   Future<void> _loadPrinters() async {
@@ -230,6 +240,18 @@ class _PrintPreviewState extends State<PrintPreview> {
     );
   }
 
+  /// Rasterises one page as RGBA for the Windows printer.
+  Future<PageRaster> _raster(int index, double pixelRatio) async {
+    final boundary = _pageKeys[index].currentContext!.findRenderObject()! as RenderRepaintBoundary;
+    final image = await boundary.toImage(pixelRatio: pixelRatio);
+    try {
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      return (rgba: bytes!.buffer.asUint8List(), width: image.width, height: image.height);
+    } finally {
+      image.dispose();
+    }
+  }
+
   /// Rasterises every page to PNG files and has the core build the PDF.
   Future<void> _writePdf(String target) async {
     final dir = Directory.systemTemp.createTempSync('akshara-print-');
@@ -265,6 +287,8 @@ class _PrintPreviewState extends State<PrintPreview> {
       await job();
     } on CoreError catch (e) {
       if (mounted) await showError(context, t('Cannot print'), e);
+    } on SystemPrintError catch (e) {
+      if (mounted) await showError(context, t('Cannot print'), e.message);
     } on Object catch (e) {
       if (mounted) await showError(context, t('Cannot print'), e);
     } finally {
@@ -275,9 +299,34 @@ class _PrintPreviewState extends State<PrintPreview> {
   Future<void> _print() => _run(() async {
         final messenger = ScaffoldMessenger.maybeOf(context);
         final navigator = Navigator.of(context);
+        final src = widget.source;
+        final title = src.title ?? 'Akshara';
+        if (Platform.isWindows) {
+          final result = await printWindows(
+            title: title,
+            pageCount: _pageKeys.length,
+            widthPt: src.width,
+            heightPt: src.height,
+            paper: src.paper,
+            render: _raster,
+          );
+          if (result == SystemPrintResult.printed) {
+            messenger?.showSnackBar(SnackBar(content: Text(t('Sent to the printer.'))));
+            navigator.pop();
+          }
+          return;
+        }
         final dir = Directory.systemTemp.createTempSync('akshara-pdf-');
         final pdf = '${dir.path}${Platform.pathSeparator}${_safeName(widget.source.title ?? 'document')}.pdf';
         await _writePdf(pdf);
+        if (_systemDialog) {
+          final result = await printGtk(title: title, pdfPath: pdf, widthPt: src.width, heightPt: src.height, paper: src.paper);
+          if (result == SystemPrintResult.printed) {
+            messenger?.showSnackBar(SnackBar(content: Text(t('Sent to the printer.'))));
+            navigator.pop();
+          }
+          return;
+        }
         if (_canSpool) {
           final args = [if (_printer != null) ...['-d', _printer!], '-n', '$_copies', '-t', widget.source.title ?? 'Akshara', pdf];
           final r = await Process.run('lp', args);
@@ -418,7 +467,7 @@ class _PrintPreviewState extends State<PrintPreview> {
                     ),
                   FilledButton(
                     onPressed: _pages == null || _busy ? null : (widget.pdfOnly ? _exportPdf : _print),
-                    child: Text(widget.pdfOnly ? t('Export as PDF') : t('Print')),
+                    child: Text(widget.pdfOnly ? t('Export as PDF') : (_systemDialog ? t('Print…') : t('Print'))),
                   ),
                 ],
               ),
