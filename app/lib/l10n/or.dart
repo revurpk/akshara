@@ -480,4 +480,11 @@ const Map<String, String> orStrings = {
   "Voice input needs a speech model": "ସ୍ୱର ଇନପୁଟ୍ ପାଇଁ କଥା ମଡେଲ ଦରକାର",
   "compressed": "ସଙ୍କୁଚିତ",
   "multilingual": "ବହୁଭାଷୀ",
+  "Speech engine": "କଥା ଇଞ୍ଜିନ",
+  "Whisper (built in)": "Whisper (ଅନ୍ତର୍ନିର୍ମିତ)",
+  "System speech recognition": "ସିଷ୍ଟମ କଥା ଚିହ୍ନଟ",
+  "the system language": "ସିଷ୍ଟମର ଭାଷା",
+  "System speech recognition is not available; using the built-in Whisper engine.": "ସିଷ୍ଟମ କଥା ଚିହ୍ନଟ ଉପଲବ୍ଧ ନାହିଁ; ଅନ୍ତର୍ନିର୍ମିତ Whisper ଇଞ୍ଜିନ ବ୍ୟବହାର ହେଉଛି।",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "ସିଷ୍ଟମ କଥା ଚିହ୍ନଟକାରୀ ଏହି ଡିଭାଇସରେ ଅଫଲାଇନରେ {language} ଚିହ୍ନଟ କରିପାରିବ ନାହିଁ। ଅନ୍ୟ ଭାଷା କିମ୍ବା ଅନ୍ତର୍ନିର୍ମିତ Whisper ଇଞ୍ଜିନ ବାଛନ୍ତୁ।",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "କଥାକୁ ଏହି ଡିଭାଇସରେ ହିଁ ଅପରେଟିଂ ସିଷ୍ଟମ, କେବଳ ଡିଭାଇସ ଭିତରେ ଚିହ୍ନଟ କରେ; କିଛି କେଉଁଠିକୁ ପଠାଯାଏ ନାହିଁ। ଅଫଲାଇନରେ ଉପଲବ୍ଧ ଭାଷା: {languages}।",
 };

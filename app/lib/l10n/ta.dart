@@ -480,4 +480,11 @@ const Map<String, String> taStrings = {
   "Voice input needs a speech model": "குரல் உள்ளீட்டுக்குப் பேச்சு மாதிரி தேவை",
   "compressed": "சுருக்கப்பட்டது",
   "multilingual": "பன்மொழி",
+  "Speech engine": "பேச்சு இயந்திரம்",
+  "Whisper (built in)": "Whisper (உள்ளமைந்தது)",
+  "System speech recognition": "கணினியின் பேச்சு அறிதல்",
+  "the system language": "கணினியின் மொழி",
+  "System speech recognition is not available; using the built-in Whisper engine.": "கணினியின் பேச்சு அறிதல் கிடைக்கவில்லை; உள்ளமைந்த Whisper இயந்திரம் பயன்படுத்தப்படுகிறது.",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "கணினியின் பேச்சு அறிவான் இந்தச் சாதனத்தில் இணையமின்றி {language} மொழியை அறிய முடியாது. வேறு மொழியையோ உள்ளமைந்த Whisper இயந்திரத்தையோ தேர்ந்தெடுக்கவும்.",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "பேச்சு இந்தச் சாதனத்திலேயே இயக்க முறைமையால், சாதனத்திலேயே மட்டும் அறியப்படுகிறது; எதுவும் எங்கும் அனுப்பப்படுவதில்லை. இணையமின்றிக் கிடைக்கும் மொழிகள்: {languages}.",
 };

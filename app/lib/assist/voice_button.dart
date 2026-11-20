@@ -1,10 +1,12 @@
 // The microphone button: click to dictate, click again to stop. The speech
-// is recognised on this computer by the core's Whisper engine, and the text
-// is handed to [VoiceButton.onText].
+// is recognised on this computer, by the core's Whisper engine or (when
+// chosen in the settings) by the operating system's on-device recogniser,
+// and the text is handed to [VoiceButton.onText].
 
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:material_ui/material_ui.dart';
 
 import '../core/file_dialog.dart';
@@ -12,6 +14,7 @@ import '../core/native.dart';
 import '../core/paths.dart';
 import '../l10n/l10n.dart';
 import 'assist_settings.dart';
+import 'system_speech.dart';
 
 enum _State { idle, recording, transcribing }
 
@@ -31,6 +34,9 @@ class VoiceButton extends StatefulWidget {
 class _VoiceButtonState extends State<VoiceButton> {
   _State _state = _State.idle;
   int? _session;
+  // True while the operating system's recogniser runs the session.
+  bool _system = false;
+  bool _polling = false;
   Timer? _poll;
   double _level = 0;
   double _seconds = 0;
@@ -45,6 +51,9 @@ class _VoiceButtonState extends State<VoiceButton> {
   void dispose() {
     AssistSettings.instance.removeListener(_changed);
     _poll?.cancel();
+    if (_system) {
+      SystemSpeech.cancel().catchError((_) {});
+    }
     final s = _session;
     if (s != null) {
       try {
@@ -74,6 +83,12 @@ class _VoiceButtonState extends State<VoiceButton> {
   }
 
   Future<void> _start() async {
+    if (AssistSettings.instance.voiceEngine == 'system') {
+      final info = await SystemSpeech.info();
+      if (!mounted) return;
+      if (info.available) return _startSystem(info);
+      _message(info.reason ?? t('System speech recognition is not available; using the built-in Whisper engine.'));
+    }
     var model = AssistSettings.instance.voiceModel;
     if (model == null || !File(model).existsSync()) {
       model = await showVoiceModelSetup(context);
@@ -99,7 +114,53 @@ class _VoiceButtonState extends State<VoiceButton> {
     }
   }
 
+  Future<void> _startSystem(SystemSpeechInfo info) async {
+    final lang = AssistSettings.instance.voiceLanguage;
+    if (lang != 'auto' && !info.languages.contains(lang)) {
+      _message(t('The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.',
+          {'language': voiceLanguageName(lang)}));
+      return;
+    }
+    setState(() {
+      _system = true;
+      _state = _State.recording;
+      _level = 0;
+      _seconds = 0;
+    });
+    try {
+      await SystemSpeech.start(lang);
+    } on PlatformException catch (e) {
+      _reset();
+      _message(e.message ?? e.code);
+      return;
+    }
+    if (!mounted || !_system) return;
+    _poll = Timer.periodic(const Duration(milliseconds: 100), (_) => _tickSystem());
+  }
+
+  Future<void> _tickSystem() async {
+    if (_polling || !_system) return;
+    _polling = true;
+    try {
+      final r = await SystemSpeech.status();
+      if (_system && mounted) _show(r);
+    } on PlatformException catch (e) {
+      _reset();
+      _message(e.message ?? e.code);
+    } finally {
+      _polling = false;
+    }
+  }
+
   void _stop() {
+    if (_system) {
+      setState(() => _state = _State.transcribing);
+      SystemSpeech.stop().catchError((Object e) {
+        _reset();
+        _message('$e');
+      });
+      return;
+    }
     final s = _session;
     if (s == null) return;
     try {
@@ -112,6 +173,7 @@ class _VoiceButtonState extends State<VoiceButton> {
   }
 
   void _cancel() {
+    if (_system) SystemSpeech.cancel().catchError((_) {});
     final s = _session;
     if (s != null) {
       try {
@@ -125,6 +187,7 @@ class _VoiceButtonState extends State<VoiceButton> {
     _poll?.cancel();
     _poll = null;
     _session = null;
+    _system = false;
     if (mounted) setState(() => _state = _State.idle);
   }
 
@@ -139,12 +202,22 @@ class _VoiceButtonState extends State<VoiceButton> {
       _message(e.message);
       return;
     }
+    _show(r);
+  }
+
+  /// Shows a status report from either engine.
+  void _show(Map<String, dynamic> r) {
     switch (r['state']) {
+      case 'recording' when _system && _state == _State.transcribing:
+        // Stopped while the system was still asking for permission.
+        SystemSpeech.stop().catchError((_) {});
       case 'recording':
         setState(() {
           _level = (r['level'] as num).toDouble();
           _seconds = (r['seconds'] as num).toDouble();
         });
+      case 'transcribing':
+        if (_state != _State.transcribing) setState(() => _state = _State.transcribing);
       case 'done':
         _reset();
         final text = (r['text'] as String).trim();
@@ -300,12 +373,16 @@ class _AssistSettingsDialogState extends State<_AssistSettingsDialog> {
   String? _status;
   bool _checking = false;
   Map<String, dynamic>? _modelInfo;
+  SystemSpeechInfo _system = SystemSpeechInfo.none;
 
   @override
   void initState() {
     super.initState();
     s.addListener(_changed);
     _probe();
+    SystemSpeech.info().then((info) {
+      if (mounted) setState(() => _system = info);
+    });
     if (s.aiEnabled) _refresh();
   }
 
@@ -362,6 +439,7 @@ class _AssistSettingsDialogState extends State<_AssistSettingsDialog> {
     final theme = Theme.of(context);
     final info = _modelInfo;
     final model = s.voiceModel;
+    final useSystem = _system.available && s.voiceEngine == 'system';
     return AlertDialog(
       title: Text(t('Voice and AI settings')),
       content: SizedBox(
@@ -373,9 +451,37 @@ class _AssistSettingsDialogState extends State<_AssistSettingsDialog> {
             children: [
               Text(t('Voice input'), style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
-              Text(t('Speech is recognised on this computer with a Whisper model file; nothing is sent anywhere.'), style: theme.textTheme.bodySmall),
+              if (_system.available) ...[
+                Row(
+                  children: [
+                    Text(t('Speech engine')),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: s.voiceEngine,
+                        items: [
+                          DropdownMenuItem(value: 'whisper', child: Text(t('Whisper (built in)'))),
+                          DropdownMenuItem(value: 'system', child: Text(t('System speech recognition'))),
+                        ],
+                        onChanged: (v) => s.voiceEngine = v ?? 'whisper',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+              ],
+              if (useSystem)
+                Text(
+                  t('Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.', {
+                    'languages': _system.languages.isEmpty ? t('the system language') : _system.languages.map(voiceLanguageName).join(', '),
+                  }),
+                  style: theme.textTheme.bodySmall,
+                )
+              else
+                Text(t('Speech is recognised on this computer with a Whisper model file; nothing is sent anywhere.'), style: theme.textTheme.bodySmall),
               const SizedBox(height: 8),
-              ListTile(
+              if (!useSystem) ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.graphic_eq),
                 title: Text(model == null ? t('No speech model chosen') : baseName(model)),

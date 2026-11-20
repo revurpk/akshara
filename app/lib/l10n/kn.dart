@@ -480,4 +480,11 @@ const Map<String, String> knStrings = {
   "Voice input needs a speech model": "ಧ್ವನಿ ಇನ್‌ಪುಟ್‌ಗೆ ಮಾತಿನ ಮಾದರಿ ಬೇಕು",
   "compressed": "ಸಂಕುಚಿತ",
   "multilingual": "ಬಹುಭಾಷಾ",
+  "Speech engine": "ಮಾತು ಎಂಜಿನ್",
+  "Whisper (built in)": "Whisper (ಅಂತರ್ನಿರ್ಮಿತ)",
+  "System speech recognition": "ಸಿಸ್ಟಮ್ ಮಾತು ಗುರುತಿಸುವಿಕೆ",
+  "the system language": "ಸಿಸ್ಟಮ್ ಭಾಷೆ",
+  "System speech recognition is not available; using the built-in Whisper engine.": "ಸಿಸ್ಟಮ್ ಮಾತು ಗುರುತಿಸುವಿಕೆ ಲಭ್ಯವಿಲ್ಲ; ಅಂತರ್ನಿರ್ಮಿತ Whisper ಎಂಜಿನ್ ಬಳಸಲಾಗುತ್ತಿದೆ.",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "ಸಿಸ್ಟಮ್ ಮಾತು ಗುರುತಿಸುವಿಕೆ ಈ ಸಾಧನದಲ್ಲಿ ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿ {language} ಅನ್ನು ಗುರುತಿಸಲಾರದು. ಬೇರೆ ಭಾಷೆ ಅಥವಾ ಅಂತರ್ನಿರ್ಮಿತ Whisper ಎಂಜಿನ್ ಆಯ್ಕೆಮಾಡಿ.",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "ಮಾತನ್ನು ಈ ಸಾಧನದಲ್ಲೇ ಆಪರೇಟಿಂಗ್ ಸಿಸ್ಟಮ್, ಸಾಧನದೊಳಗಿನ ವಿಧಾನದಲ್ಲಿ ಮಾತ್ರ ಗುರುತಿಸುತ್ತದೆ; ಏನನ್ನೂ ಎಲ್ಲಿಗೂ ಕಳುಹಿಸಲಾಗುವುದಿಲ್ಲ. ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿ ಲಭ್ಯವಿರುವ ಭಾಷೆಗಳು: {languages}.",
 };

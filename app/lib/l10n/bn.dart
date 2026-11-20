@@ -480,4 +480,11 @@ const Map<String, String> bnStrings = {
   "Voice input needs a speech model": "ভয়েস ইনপুটের জন্য কথার মডেল লাগে",
   "compressed": "সংকুচিত",
   "multilingual": "বহুভাষিক",
+  "Speech engine": "কথা ইঞ্জিন",
+  "Whisper (built in)": "Whisper (অন্তর্নির্মিত)",
+  "System speech recognition": "সিস্টেমের কথা শনাক্তকরণ",
+  "the system language": "সিস্টেমের ভাষা",
+  "System speech recognition is not available; using the built-in Whisper engine.": "সিস্টেমের কথা শনাক্তকরণ উপলব্ধ নেই; অন্তর্নির্মিত Whisper ইঞ্জিন ব্যবহার করা হচ্ছে।",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "সিস্টেমের কথা শনাক্তকারী এই ডিভাইসে অফলাইনে {language} শনাক্ত করতে পারে না। অন্য ভাষা বা অন্তর্নির্মিত Whisper ইঞ্জিন বেছে নিন।",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "কথা এই ডিভাইসেই অপারেটিং সিস্টেম দ্বারা, কেবল ডিভাইসের ভেতরে শনাক্ত হয়; কিছুই কোথাও পাঠানো হয় না। অফলাইনে উপলব্ধ ভাষা: {languages}।",
 };

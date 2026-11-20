@@ -55,6 +55,12 @@ class AssistSettings extends ChangeNotifier {
   String? get voiceModel => _str('voice_model');
   set voiceModel(String? path) => _set('voice_model', path);
 
+  /// Which recogniser the microphone uses: 'whisper' (built in, the
+  /// default) or 'system' (the operating system's on-device recogniser,
+  /// see system_speech.dart).
+  String get voiceEngine => _str('voice_engine') == 'system' ? 'system' : 'whisper';
+  set voiceEngine(String engine) => _set('voice_engine', engine == 'system' ? 'system' : null);
+
   /// 'auto' or one of [voiceLanguages].
   String get voiceLanguage {
     final v = _str('voice_language');

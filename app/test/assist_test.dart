@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:akshara/assist/assist_settings.dart';
 import 'package:akshara/assist/chat_panel.dart';
+import 'package:akshara/assist/system_speech.dart';
 import 'package:akshara/assist/voice_button.dart';
 import 'package:akshara/core/document.dart';
 import 'package:akshara/core/native.dart';
@@ -33,6 +34,7 @@ void main() {
     AssistSettings.instance
       ..aiEnabled = false
       ..voiceModel = null
+      ..voiceEngine = 'whisper'
       ..voiceLanguage = 'auto';
     ChatSession.instance.clear();
   });
@@ -56,6 +58,109 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byIcon(Icons.mic_none), findsOneWidget);
   }, skip: skip != null);
+
+  group('system speech recognition', () {
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final calls = <String>[];
+
+    /// Fakes the runner's recogniser: [languages] offline, and a status
+    /// that says "recording" until stopped, then [text].
+    void fake({List<String> languages = const ['en', 'hi'], String text = 'hello world'}) {
+      var stopped = false;
+      messenger.setMockMethodCallHandler(SystemSpeech.channel, (call) async {
+        calls.add(call.method);
+        switch (call.method) {
+          case 'available':
+            return {'available': true, 'languages': languages};
+          case 'stop':
+            stopped = true;
+          case 'status':
+            return stopped ? {'state': 'done', 'text': text} : {'state': 'recording', 'level': 0.1, 'seconds': 1.0};
+        }
+        return null;
+      });
+    }
+
+    // Channel replies complete outside the fake clock: let real time pass,
+    // then advance the fake one past the 100 ms polling interval.
+    Future<void> settle(WidgetTester tester) async {
+      for (var i = 0; i < 3; i++) {
+        await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+    }
+
+    setUp(calls.clear);
+    tearDown(() async {
+      messenger.setMockMethodCallHandler(SystemSpeech.channel, null);
+      await SystemSpeech.info(refresh: true);
+    });
+
+    test('is unavailable without a platform recogniser', () async {
+      final info = await SystemSpeech.info(refresh: true);
+      expect(info.available, isFalse);
+      AssistSettings.instance.voiceEngine = 'bogus';
+      expect(AssistSettings.instance.voiceEngine, 'whisper');
+    });
+
+    testWidgets('dictates with the system recogniser, without a Whisper model', (tester) async {
+      fake();
+      await tester.runAsync(() => SystemSpeech.info(refresh: true));
+      AssistSettings.instance
+        ..voiceEngine = 'system'
+        ..voiceLanguage = 'en';
+      final got = <String>[];
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: VoiceButton(onText: got.add)))));
+      await tester.tap(find.byIcon(Icons.mic_none));
+      await settle(tester);
+      expect(find.text('Voice input needs a speech model'), findsNothing);
+      expect(find.byIcon(Icons.mic), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.mic));
+      await settle(tester);
+      await settle(tester);
+      expect(got, ['hello world']);
+      expect(calls, containsAllInOrder(['start', 'status', 'stop', 'status']));
+      expect(find.byIcon(Icons.mic_none), findsOneWidget);
+    });
+
+    testWidgets('refuses a language the system cannot recognise offline', (tester) async {
+      fake(languages: ['en']);
+      await tester.runAsync(() => SystemSpeech.info(refresh: true));
+      AssistSettings.instance
+        ..voiceEngine = 'system'
+        ..voiceLanguage = 'te';
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: VoiceButton(onText: (_) {})))));
+      await tester.tap(find.byIcon(Icons.mic_none));
+      await settle(tester);
+      expect(find.textContaining('cannot recognise Telugu offline'), findsOneWidget);
+      expect(calls, isNot(contains('start')));
+    });
+
+    testWidgets('settings offer the engine only when the system has one', (tester) async {
+      await tester.runAsync(() => SystemSpeech.info(refresh: true));
+      await tester.pumpWidget(MaterialApp(home: Scaffold(body: Builder(builder: (c) => TextButton(onPressed: () => showAssistSettings(c), child: const Text('open'))))));
+      await tester.tap(find.text('open'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Speech engine'), findsNothing);
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+
+      fake();
+      await tester.runAsync(() => SystemSpeech.info(refresh: true));
+      await tester.tap(find.text('open'));
+      await settle(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('Speech engine'), findsOneWidget);
+      await tester.tap(find.text('Whisper (built in)'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('System speech recognition').last);
+      await tester.pumpAndSettle();
+      expect(AssistSettings.instance.voiceEngine, 'system');
+      expect(find.textContaining('Languages available offline: English, Hindi'), findsOneWidget);
+      expect(find.text('No speech model chosen'), findsNothing);
+    });
+  });
 
   testWidgets('chat explains how to turn it on', (tester) async {
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: ChatPanel(onNewDocument: (_) {}))));

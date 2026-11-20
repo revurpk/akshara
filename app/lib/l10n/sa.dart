@@ -480,4 +480,11 @@ const Map<String, String> saStrings = {
   "Voice input needs a speech model": "वाचा लेखनाय वाक्प्रतिमानम् आवश्यकम्",
   "compressed": "सङ्कुचितम्",
   "multilingual": "बहुभाषिकम्",
+  "Speech engine": "वाग्यन्त्रम्",
+  "Whisper (built in)": "Whisper (अन्तर्निहितम्)",
+  "System speech recognition": "तन्त्रस्य वाक्परिचयः",
+  "the system language": "तन्त्रस्य भाषा",
+  "System speech recognition is not available; using the built-in Whisper engine.": "तन्त्रस्य वाक्परिचयः न उपलभ्यते; अन्तर्निहितं Whisper यन्त्रं प्रयुज्यते।",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "तन्त्रस्य वाक्परिचायकः अस्मिन् उपकरणे जालं विना {language} न परिचिनोति। अन्यां भाषां अन्तर्निहितं Whisper यन्त्रं वा चिनोतु।",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "वाणी अस्मिन् एव उपकरणे सञ्चालनतन्त्रेण परिचीयते, केवलम् उपकरणस्थरीत्या; किमपि कुत्रापि न प्रेष्यते। जालं विना लभ्याः भाषाः: {languages}।",
 };

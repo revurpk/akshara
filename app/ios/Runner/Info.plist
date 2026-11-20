@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Akshara uses the microphone for voice input. Speech is recognised on this device and never leaves it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Akshara uses the on-device speech recogniser for voice input. Speech is recognised on this device and never leaves it.</string>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

@@ -480,4 +480,11 @@ const Map<String, String> hiStrings = {
   "Voice input needs a speech model": "आवाज़ से लिखने के लिए वाक् मॉडल चाहिए",
   "compressed": "संपीड़ित",
   "multilingual": "बहुभाषी",
+  "Speech engine": "वाक् इंजन",
+  "Whisper (built in)": "Whisper (अंतर्निहित)",
+  "System speech recognition": "सिस्टम वाक् पहचान",
+  "the system language": "सिस्टम की भाषा",
+  "System speech recognition is not available; using the built-in Whisper engine.": "सिस्टम वाक् पहचान उपलब्ध नहीं है; अंतर्निहित Whisper इंजन का उपयोग हो रहा है।",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "सिस्टम वाक् पहचानकर्ता इस डिवाइस पर ऑफ़लाइन {language} नहीं पहचान सकता। कोई दूसरी भाषा या अंतर्निहित Whisper इंजन चुनें।",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "वाणी को ऑपरेटिंग सिस्टम इसी डिवाइस पर, केवल ऑन-डिवाइस मोड में पहचानता है; कुछ भी कहीं नहीं भेजा जाता। ऑफ़लाइन उपलब्ध भाषाएँ: {languages}।",
 };

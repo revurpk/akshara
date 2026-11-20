@@ -346,8 +346,23 @@ cancel while the speech is being recognised.
 - **Settings:** *Voice and AI settings…* (in the language menu next to the
   microphone, or the chat panel's ⚙ button) shows the model and its
   language, and lets you choose another file.
-- Voice input works on Windows, macOS and Linux. On macOS the system asks
-  for permission to use the microphone the first time.
+- Voice input with Whisper works on Windows, macOS and Linux. On macOS the
+  system asks for permission to use the microphone the first time.
+- **System speech recognition:** where the operating system has its own
+  recogniser that works offline, *Voice and AI settings…* also offers a
+  **Speech engine** choice. *System speech recognition* needs no model file
+  and also works on phones and tablets. Akshara uses it only in on-device
+  mode, so nothing is sent anywhere, and the settings list the languages it
+  can recognise offline (often only English and Hindi):
+  - **macOS and iOS:** Apple's on-device dictation. Download more languages
+    in the system's Keyboard → Dictation settings. The first time, the
+    system asks for permission to use speech recognition and the microphone.
+  - **Android 12 and later:** the phone's on-device recogniser. Install
+    offline languages in the system's speech recognition settings. It stops
+    by itself when you pause.
+  - **Windows:** the recogniser of Windows Speech Recognition (installed
+    with a language's *Speech* feature, for example English).
+  - **Linux** has no system recogniser, so the choice is not shown there.
 
 ## AI chat
 

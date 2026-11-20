@@ -166,6 +166,14 @@ C ABI carrying JSON.
 - `Recorder` captures the default microphone with cpal on its own thread and
   resamples to 16 kHz mono. Android and iOS get a stub (no permission flow
   yet).
+- The other engine, the operating system's recogniser, lives in the Flutter
+  runners rather than the core: `assist/system_speech.dart` talks to the
+  `akshara/speech` method channel, which macOS and iOS answer from
+  `Runner/SystemSpeech.swift` (SFSpeechRecognizer, on-device only), Android
+  from `MainActivity.kt` (`createOnDeviceSpeechRecognizer`, API 31 and later)
+  and Windows from `runner/system_speech.cpp` (SAPI dictation). Its status
+  replies have the same shape as `voice.status`, so the microphone button
+  polls both engines the same way.
 
 ### `office-ai`
 - A minimal HTTP/1.1 client (`std::net::TcpStream`, chunked decoding) for

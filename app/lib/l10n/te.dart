@@ -480,4 +480,11 @@ const Map<String, String> teStrings = {
   "Voice input needs a speech model": "వాయిస్ ఇన్‌పుట్‌కు స్పీచ్ మోడల్ కావాలి",
   "compressed": "కుదించినది",
   "multilingual": "బహుభాషా",
+  "Speech engine": "మాట ఇంజిన్",
+  "Whisper (built in)": "Whisper (అంతర్నిర్మితం)",
+  "System speech recognition": "సిస్టమ్ మాట గుర్తింపు",
+  "the system language": "సిస్టమ్ భాష",
+  "System speech recognition is not available; using the built-in Whisper engine.": "సిస్టమ్ మాట గుర్తింపు అందుబాటులో లేదు; అంతర్నిర్మిత Whisper ఇంజిన్ వాడబడుతోంది.",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "సిస్టమ్ మాట గుర్తింపు ఈ పరికరంలో ఆఫ్‌లైన్‌లో {language} ను గుర్తించలేదు. వేరే భాషను లేదా అంతర్నిర్మిత Whisper ఇంజిన్‌ను ఎంచుకోండి.",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "మాట ఈ పరికరంలోనే ఆపరేటింగ్ సిస్టమ్ ద్వారా, ఆన్-డివైస్ పద్ధతిలో మాత్రమే గుర్తించబడుతుంది; ఏదీ ఎక్కడికీ పంపబడదు. ఆఫ్‌లైన్‌లో అందుబాటులో ఉన్న భాషలు: {languages}.",
 };

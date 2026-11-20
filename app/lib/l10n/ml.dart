@@ -480,4 +480,11 @@ const Map<String, String> mlStrings = {
   "Voice input needs a speech model": "ശബ്ദ ഇൻപുട്ടിന് സംഭാഷണ മോഡൽ വേണം",
   "compressed": "ചുരുക്കിയത്",
   "multilingual": "ബഹുഭാഷാ",
+  "Speech engine": "സംഭാഷണ എഞ്ചിൻ",
+  "Whisper (built in)": "Whisper (അന്തർനിർമ്മിതം)",
+  "System speech recognition": "സിസ്റ്റം സംഭാഷണ തിരിച്ചറിയൽ",
+  "the system language": "സിസ്റ്റത്തിന്റെ ഭാഷ",
+  "System speech recognition is not available; using the built-in Whisper engine.": "സിസ്റ്റം സംഭാഷണ തിരിച്ചറിയൽ ലഭ്യമല്ല; അന്തർനിർമ്മിത Whisper എഞ്ചിൻ ഉപയോഗിക്കുന്നു.",
+  "The system speech recogniser cannot recognise {language} offline on this device. Choose another language or the built-in Whisper engine.": "സിസ്റ്റം സംഭാഷണ തിരിച്ചറിയലിന് ഈ ഉപകരണത്തിൽ ഓഫ്‌ലൈനായി {language} തിരിച്ചറിയാനാവില്ല. മറ്റൊരു ഭാഷയോ അന്തർനിർമ്മിത Whisper എഞ്ചിനോ തിരഞ്ഞെടുക്കുക.",
+  "Speech is recognised on this device by the operating system, in on-device mode only; nothing is sent anywhere. Languages available offline: {languages}.": "സംഭാഷണം ഈ ഉപകരണത്തിൽത്തന്നെ ഓപ്പറേറ്റിംഗ് സിസ്റ്റം, ഉപകരണത്തിനുള്ളിലെ രീതിയിൽ മാത്രം തിരിച്ചറിയുന്നു; ഒന്നും എവിടേക്കും അയയ്ക്കുന്നില്ല. ഓഫ്‌ലൈനായി ലഭ്യമായ ഭാഷകൾ: {languages}.",
 };
