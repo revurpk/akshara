@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 [[ -f scripts/local-env.sh ]] && source scripts/local-env.sh
 version="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
-(cd app && flutter pub get --offline >/dev/null && flutter build linux --release)
+(cd app && { flutter pub get --offline >/dev/null || flutter pub get; } && flutter build linux --release)
 name="akshara-$version-linux-x64"
 stage="dist/$name"
 rm -rf "$stage" && mkdir -p "$stage"

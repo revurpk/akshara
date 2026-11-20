@@ -6,8 +6,8 @@ package installs for the current user only.
 ## Linux
 
 ```bash
-tar xzf akshara-0.3.0-linux-x64.tar.gz
-cd akshara-0.3.0-linux-x64
+tar xzf akshara-0.3.1-linux-x64.tar.gz
+cd akshara-0.3.1-linux-x64
 ./install.sh
 ```
 
@@ -22,17 +22,17 @@ desktop distributions).
 
 ## Windows
 
-Run `akshara-0.3.0-windows-x64-setup.exe`. It installs into
+Run `akshara-0.3.1-windows-x64-setup.exe`. It installs into
 `%LOCALAPPDATA%\Programs\Akshara` without a UAC prompt, creates Start menu
 and (optionally) desktop shortcuts, and can register Akshara for OpenDocument
 files for your account only. Uninstall it from *Settings → Apps*.
 
-Alternatively, unzip `akshara-0.3.0-windows-x64-portable.zip` anywhere and run
+Alternatively, unzip `akshara-0.3.1-windows-x64-portable.zip` anywhere and run
 `akshara.exe`.
 
 ## macOS
 
-Open `akshara-0.3.0-macos.dmg` and either double-click **Install for me**
+Open `akshara-0.3.1-macos.dmg` and either double-click **Install for me**
 (it copies the app to `~/Applications`), or drag **Akshara.app** to the
 `Applications` folder in your home directory. Builds signed ad hoc must be
 opened once with right-click → *Open*.
@@ -43,8 +43,8 @@ files elsewhere through the system file panel is planned.
 
 ## Android
 
-Copy the APK for your device (`app-arm64-v8a-release.apk` for almost all
-current phones) and open it. Allow *Install unknown apps* for your file
+Copy the APK for your device (`akshara-0.3.1-android-arm64-v8a.apk` for
+almost all current phones) and open it. Allow *Install unknown apps* for your file
 manager when asked; no root is needed. Documents are stored in the app's
 storage. The *Shared (Android/data)* folder in the file browser
 (`Android/data/org.akshara.office/files`) can be reached from a computer over

@@ -9,7 +9,9 @@
   of uv (deliberate exception to the global rule).
 - The macOS/iOS Rust core cross-compiles on Linux:
   `scripts/build-native.sh macos` (static libs + tools/fatlib); the app
-  bundle and .dmg need a Mac or the macos-dmg GitHub workflow.
+  bundle and .dmg need a Mac. The "Release builds" GitHub workflow
+  (.github/workflows/release.yml, on v* tags or by hand) builds Linux,
+  Windows, macOS, Android and unsigned iOS packages.
 - License: Apache-2.0 (Cargo `license.workspace`), fonts are SIL OFL.
 - Check everything with:
   `cargo test --workspace && cargo clippy --workspace --all-targets`

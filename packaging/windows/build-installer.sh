@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 version="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
-(cd app && flutter pub get --offline >/dev/null && flutter build windows --release)
+(cd app && { flutter pub get --offline >/dev/null || flutter pub get; } && flutter build windows --release)
 mkdir -p dist
 iscc_bin="$(command -v iscc || echo "$LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe")"
 "$iscc_bin" "//DAppVersion=$version" packaging/windows/akshara.iss

@@ -1,0 +1,181 @@
+# Release builds for every platform. The Apple Rust cores are cross-compiled
+# on Linux (no Xcode needed, see scripts/build-native.sh); only the Flutter
+# app bundles are made on a macOS runner, because Flutter's Apple builds need
+# Xcode. Each job uploads its packages as a workflow artifact; a pushed v*
+# tag also collects them into a draft GitHub release to review and publish.
+#
+# Outputs:
+#   Linux    akshara-<ver>-linux-x64.tar.gz           (./install.sh, no sudo)
+#   Windows  akshara-<ver>-windows-x64-setup.exe      (per user, no UAC)
+#            akshara-<ver>-windows-x64-portable.zip
+#   macOS    akshara-<ver>-macos.dmg                  (ad-hoc signed)
+#   Android  akshara-<ver>-android-<abi>.apk          (see the signing note)
+#   iOS      akshara-<ver>-ios-unsigned.ipa           (must be signed to install)
+name: Release builds
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_SUPPRESS_ANALYTICS: 'true'
+  DART_SUPPRESS_ANALYTICS: 'true'
+
+jobs:
+  apple-core:
+    name: Cross-compile the Apple Rust cores (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Universal macOS and iOS static libraries
+        run: |
+          scripts/build-native.sh macos
+          scripts/build-native.sh ios
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libakshara-apple
+          path: |
+            target/universal-apple-darwin/release/libakshara.a
+            target/aarch64-apple-ios/release/libakshara.a
+          if-no-files-found: error
+
+  macos:
+    name: macOS disk image
+    needs: apple-core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: libakshara-apple
+          path: target
+      - name: Flutter SDK
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build Akshara.app and the .dmg
+        run: |
+          flutter --version
+          packaging/macos/build-dmg.sh --prebuilt-core
+      - uses: actions/upload-artifact@v7
+        with:
+          name: akshara-macos
+          path: dist/*.dmg
+          if-no-files-found: error
+
+  ios:
+    name: iOS app (unsigned)
+    needs: apple-core
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: libakshara-apple
+          path: target
+      - name: Flutter SDK
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build the unsigned .ipa
+        run: packaging/ios/build-ipa.sh --unsigned --prebuilt-core
+      - uses: actions/upload-artifact@v7
+        with:
+          name: akshara-ios
+          path: dist/*.ipa
+          if-no-files-found: error
+
+  linux:
+    name: Linux package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Flutter SDK
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build the .tar.gz
+        run: packaging/linux/build-package.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: akshara-linux
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the installer and portable zip
+        shell: pwsh
+        # The script checks Visual Studio and Rust (preinstalled on the
+        # runner) and fetches Flutter and Inno Setup with checksum checks.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./packaging/windows/build-installer.ps1 -ToolsDir "$env:RUNNER_TEMP\akshara-tools"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: akshara-windows
+          path: |
+            dist/*.exe
+            dist/*.zip
+          if-no-files-found: error
+
+  android:
+    name: Android APKs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Java 17
+        run: echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+      - name: Rust toolchain and cargo-ndk
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          cargo install cargo-ndk --locked
+      - name: Flutter SDK
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build the APKs
+        # The runner image provides the Android SDK and NDK (ANDROID_NDK_HOME).
+        run: packaging/android/build-apk.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: akshara-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, ios, linux, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: akshara-*
+          path: dist
+          merge-multiple: true
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l dist
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --title "Akshara Office ${TAG#v}" --generate-notes

@@ -134,9 +134,8 @@ disk image are made there, from the prebuilt core:
 packaging/macos/build-dmg.sh --prebuilt-core
 ```
 
-`.github/workflows/macos-dmg.yml` automates this: an Ubuntu job
-cross-compiles the core, and a macOS job builds `Akshara.app` and the
-`.dmg` from it (run it from the Actions tab, or push a `v*` tag).
+The release workflow (below) automates this: an Ubuntu job cross-compiles
+the core, and a macOS job builds `Akshara.app` and the `.dmg` from it.
 
 The Rust core is linked statically through `macos/Flutter/Flutter-*.xcconfig`
 (`-force_load` plus `-u` for the three entry points). Release builds are
@@ -218,3 +217,35 @@ Model files come from <https://huggingface.co/ggerganov/whisper.cpp>.
 The protocol tests include a real transcription when
 `AKSHARA_WHISPER_MODEL` and `AKSHARA_WHISPER_WAV` point at a model and a WAV
 file (for example `ggml-tiny.bin` and whisper.cpp's `samples/jfk.wav`).
+
+## Release builds on GitHub Actions
+
+`.github/workflows/release.yml` ("Release builds") builds every package. Run
+it from the Actions tab, or push a version tag (`git tag v0.3.0 && git push
+origin v0.3.0`). Each job uploads its files as a workflow artifact; a tag
+also gathers them, with `SHA256SUMS.txt`, into a **draft** GitHub release
+that you review and publish by hand.
+
+| Job | Runner | Script | Output |
+|---|---|---|---|
+| Apple Rust cores | Ubuntu | `scripts/build-native.sh macos` and `ios` | static libraries for the two jobs below |
+| macOS | macOS | `packaging/macos/build-dmg.sh --prebuilt-core` | `akshara-<ver>-macos.dmg` (ad-hoc signed) |
+| iOS | macOS | `packaging/ios/build-ipa.sh --unsigned --prebuilt-core` | `akshara-<ver>-ios-unsigned.ipa` |
+| Linux | Ubuntu | `packaging/linux/build-package.sh` | `akshara-<ver>-linux-x64.tar.gz` |
+| Windows | Windows | `packaging/windows/build-installer.ps1` | `-setup.exe` and `-portable.zip` |
+| Android | Ubuntu | `packaging/android/build-apk.sh` | `akshara-<ver>-android-<abi>.apk` |
+
+Things the workflow cannot do without your keys:
+
+- **iOS** apps only install when signed by Apple. The workflow builds an
+  unsigned IPA (proof that it builds, and a starting point for re-signing);
+  signed builds need an Apple Developer certificate and provisioning profile
+  stored as repository secrets.
+- **Android** release APKs are currently signed with the build machine's
+  debug key, which differs on every CI run, so a newer APK will not install
+  over an older one (uninstall first). A release keystore stored as a secret
+  fixes this.
+- **macOS** builds are signed ad hoc, not with a Developer ID, and are not
+  notarized, so users open them once with right-click → *Open*.
+- The **Linux** package is built on the newest Ubuntu runner and needs a
+  glibc at least as new as that image's.
