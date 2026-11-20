@@ -17,12 +17,12 @@ jobs:
     name: Cross-compile the Rust core (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Rust toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: Universal macOS static library
         run: scripts/build-native.sh macos
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: libakshara-macos
           path: target/universal-apple-darwin/release/libakshara.a
@@ -31,10 +31,10 @@ jobs:
   dmg:
     name: App bundle and disk image (macOS)
     needs: core
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: libakshara-macos
           path: target/universal-apple-darwin/release
@@ -46,7 +46,7 @@ jobs:
         run: |
           flutter --version
           packaging/macos/build-dmg.sh --prebuilt-core
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: akshara-macos-dmg
           path: dist/*.dmg
