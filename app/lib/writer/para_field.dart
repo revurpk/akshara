@@ -308,6 +308,34 @@ class _ParaFieldState extends State<ParaField> {
       widget.page.toggleAttr(key == LogicalKeyboardKey.keyP ? 'superscript' : 'subscript');
       return KeyEventResult.handled;
     }
+    final editable = widget.focusNode.context?.findAncestorStateOfType<EditableTextState>();
+    final box = editable?.renderEditable;
+    // The caret's global position, for moves that keep it on screen.
+    Offset? caretPoint() {
+      if (box == null || !box.hasSize || !sel.isValid) return null;
+      return box.localToGlobal(box.getLocalRectForCaret(sel.extent).center);
+    }
+
+    if (ctrl && !shift) {
+      // Word's document and paragraph moves (the text field alone would stop
+      // at the edges of this paragraph).
+      if (key == LogicalKeyboardKey.home || key == LogicalKeyboardKey.end) {
+        widget.page.onDocumentEdge(key == LogicalKeyboardKey.end);
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+        widget.page.onParagraphJump(widget.paraRef, key == LogicalKeyboardKey.arrowDown, sel.isValid ? sel.start : 0);
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowLeft && sel.isCollapsed && sel.baseOffset == 0) {
+        widget.page.onNavigate(widget.paraRef, false);
+        return KeyEventResult.handled;
+      }
+      if (key == LogicalKeyboardKey.arrowRight && sel.isCollapsed && sel.baseOffset == c.text.length) {
+        widget.page.onNavigate(widget.paraRef, true);
+        return KeyEventResult.handled;
+      }
+    }
     if (ctrl) {
       if (key == LogicalKeyboardKey.keyB) {
         widget.page.toggleAttr('bold');
@@ -338,15 +366,40 @@ class _ParaFieldState extends State<ParaField> {
       widget.page.onIndent(widget.paraRef, shift ? -1 : 1);
       return KeyEventResult.handled;
     }
+    if (!shift && (key == LogicalKeyboardKey.pageUp || key == LogicalKeyboardKey.pageDown)) {
+      final p = caretPoint();
+      if (p != null) {
+        widget.page.onPage(key == LogicalKeyboardKey.pageDown, p);
+        return KeyEventResult.handled;
+      }
+    }
     final atStart = sel.isCollapsed && sel.baseOffset == 0;
     final atEnd = sel.isCollapsed && sel.baseOffset == c.text.length;
-    if (!shift && atStart && (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.arrowUp)) {
+    if (!shift && atStart && key == LogicalKeyboardKey.arrowLeft) {
       widget.page.onNavigate(widget.paraRef, false);
       return KeyEventResult.handled;
     }
-    if (!shift && atEnd && (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.arrowDown)) {
+    if (!shift && atEnd && key == LogicalKeyboardKey.arrowRight) {
       widget.page.onNavigate(widget.paraRef, true);
       return KeyEventResult.handled;
+    }
+    // Up on the first line / Down on the last line continues in the
+    // neighbouring paragraph at the same horizontal position.
+    if (!shift && sel.isCollapsed && (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown)) {
+      final down = key == LogicalKeyboardKey.arrowDown;
+      final p = caretPoint();
+      if (box != null && p != null) {
+        final line = box.getLineAtOffset(sel.extent);
+        final firstLine = line.start <= 0;
+        final lastLine = line.end >= c.text.length;
+        if (down ? lastLine : firstLine) {
+          widget.page.onNavigateVertical(widget.paraRef, down, p.dx);
+          return KeyEventResult.handled;
+        }
+      } else if (down ? atEnd : atStart) {
+        widget.page.onNavigate(widget.paraRef, down);
+        return KeyEventResult.handled;
+      }
     }
     return KeyEventResult.ignored;
   }

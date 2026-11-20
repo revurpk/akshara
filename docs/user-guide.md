@@ -131,11 +131,20 @@ Transliteration happens on your device; nothing is sent anywhere.
 
 ## Writer
 
-Each paragraph is edited directly on the page.
+Each paragraph is edited directly on the page. A new or opened document
+starts with the cursor at its beginning, and returning to its tab puts the
+cursor back where it was.
 
 | Action | How |
 |---|---|
 | New paragraph / line break | Enter / Shift+Enter |
+| Move the cursor | arrow keys move through the whole document: Up and Down keep the column across paragraphs, Left and Right continue into the next paragraph |
+| Line start / end | Home / End |
+| Screen up / down | Page Up / Page Down |
+| Document start / end | Ctrl+Home / Ctrl+End |
+| Previous / next paragraph | Ctrl+Up / Ctrl+Down |
+| Word left / right | Ctrl+Left / Ctrl+Right |
+| Place the cursor | click the text, or click the page beside, between or below lines to go to the nearest line |
 | Join with previous paragraph | Backspace at the start (on a list item or quote, the first Backspace turns it back into body text) |
 | Bold / italic / underline | Ctrl+B / Ctrl+I / Ctrl+U, or the toolbar |
 | Superscript / subscript | Ctrl+Shift+P / Ctrl+Shift+B, or the toolbar |

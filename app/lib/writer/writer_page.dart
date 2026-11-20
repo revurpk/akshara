@@ -4,6 +4,9 @@
 // multi-line text field whose controller paints the attributed runs; every
 // edit is sent to the core, which owns undo/redo and file I/O.
 
+import 'dart:io' show Platform;
+
+import 'package:flutter/rendering.dart' show RenderEditable;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -118,6 +121,41 @@ class WriterPageState extends State<WriterPage> {
   void initState() {
     super.initState();
     _reload();
+  }
+
+  bool _shown = false;
+  bool _caretPlaced = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Tabs (an IndexedStack) keep hidden documents alive but invisible and
+    // unfocusable; when this document becomes the visible tab, give it the
+    // caret back.
+    final shown = Visibility.of(context);
+    if (shown && !_shown) _restoreCaret();
+    _shown = shown;
+  }
+
+  /// Like any word processor, a newly shown document has a blinking caret
+  /// at its start, and returning to a document puts the caret back where it
+  /// was. Phones and tablets wait for a tap (the caret would pop up the
+  /// on-screen keyboard).
+  void _restoreCaret() {
+    if (Platform.isAndroid || Platform.isIOS) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _frame != null || !Visibility.of(context)) return;
+      final f = _focus[_current.key];
+      if (_caretPlaced && f != null && f.context != null) {
+        if (!f.hasFocus) f.requestFocus();
+        return;
+      }
+      final order = _bodyOrder();
+      if (order.isEmpty) return;
+      _caretPlaced = true;
+      _focusPara(order.first, 0);
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   @override
@@ -268,6 +306,8 @@ class WriterPageState extends State<WriterPage> {
       f.requestFocus();
       setState(() => _current = ref);
     });
+    // Run the callback promptly even when nothing else is drawing.
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
   // ---- editing callbacks (from ParaField) --------------------------------------------
@@ -341,6 +381,103 @@ class WriterPageState extends State<WriterPage> {
       return;
     }
     _focusPara(ParaRef(ref.block, [index ~/ cols, index % cols, 0]), 0);
+  }
+
+  // ---- caret movement between paragraphs -----------------------------------------
+
+  /// The text field state of a paragraph (null if it is not on screen).
+  EditableTextState? _editable(ParaRef ref) => _focus[ref.key]?.context?.findAncestorStateOfType<EditableTextState>();
+
+  /// Paragraphs of the body and of its tables, in reading order (no header
+  /// or footer).
+  List<ParaRef> _bodyOrder() => _paragraphOrder().where((r) => r.isBody).toList();
+
+  /// Up / Down on the first / last line of a paragraph: continues on the
+  /// neighbouring paragraph's nearest line, at the same horizontal position
+  /// (global [x]), as in Word.
+  void onNavigateVertical(ParaRef ref, bool down, double x) {
+    final order = _paragraphOrder();
+    final i = order.indexOf(ref);
+    final j = down ? i + 1 : i - 1;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    final target = order[j];
+    final box = _editable(target)?.renderEditable;
+    if (box == null || !box.hasSize) {
+      _focusPara(target, down ? 0 : (_controllers[target.key]?.text.length ?? 0));
+      return;
+    }
+    final top = box.localToGlobal(Offset.zero).dy;
+    final half = box.preferredLineHeight / 2;
+    final y = down ? top + half : top + box.size.height - half;
+    _focusPara(target, box.getPositionForPoint(Offset(x, y)).offset);
+  }
+
+  /// Page Up / Page Down: scrolls one screen and puts the caret on the text
+  /// that is now where the caret was ([caret], global), like Word.
+  void onPage(bool down, Offset caret) {
+    if (!_scroll.hasClients) return;
+    final pos = _scroll.position;
+    final step = (pos.viewportDimension - 48).clamp(48.0, double.infinity) * (down ? 1 : -1);
+    final to = (pos.pixels + step).clamp(pos.minScrollExtent, pos.maxScrollExtent);
+    final moved = to - pos.pixels;
+    _scroll.jumpTo(to);
+    // What the scroll could not cover (near the ends) moves the caret instead.
+    final point = caret.translate(0, step - moved);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _placeCaretAt(point));
+  }
+
+  /// Ctrl+Home / Ctrl+End.
+  void onDocumentEdge(bool end) {
+    final order = _bodyOrder();
+    if (order.isEmpty) return;
+    final target = end ? order.last : order.first;
+    _focusPara(target, end ? (_controllers[target.key]?.text.length ?? 0) : 0);
+  }
+
+  /// Ctrl+Up / Ctrl+Down: start of this or the previous paragraph, or of the
+  /// next paragraph.
+  void onParagraphJump(ParaRef ref, bool down, int offset) {
+    if (!down && offset > 0) {
+      _focusPara(ref, 0);
+      return;
+    }
+    final order = _paragraphOrder();
+    final i = order.indexOf(ref);
+    final j = down ? i + 1 : i - 1;
+    if (i < 0 || j < 0 || j >= order.length) {
+      if (down) _focusPara(ref, _controllers[ref.key]?.text.length ?? 0);
+      return;
+    }
+    _focusPara(order[j], 0);
+  }
+
+  /// Puts the caret in the body paragraph nearest to [point] (global), at
+  /// the character closest to it. Used by Page Up / Down and by clicks on
+  /// the page outside the text (margins, gaps, below the last line).
+  void _placeCaretAt(Offset point) {
+    ParaRef? best;
+    RenderEditable? bestBox;
+    var bestDistance = double.infinity;
+    for (final ref in _bodyOrder()) {
+      final box = _editable(ref)?.renderEditable;
+      if (box == null || !box.hasSize || !box.attached) continue;
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      final dy = point.dy < rect.top ? rect.top - point.dy : (point.dy > rect.bottom ? point.dy - rect.bottom : 0.0);
+      final dx = point.dx < rect.left ? rect.left - point.dx : (point.dx > rect.right ? point.dx - rect.right : 0.0);
+      final d = dy * 1000 + dx; // nearest line first, then nearest column (tables)
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = ref;
+        bestBox = box;
+      }
+    }
+    if (best == null || bestBox == null) return;
+    final rect = bestBox.localToGlobal(Offset.zero) & bestBox.size;
+    final half = bestBox.preferredLineHeight / 2;
+    final lo = rect.top + half;
+    final hi = rect.bottom - half < lo ? lo : rect.bottom - half;
+    final y = point.dy.clamp(lo, hi);
+    _focusPara(best, bestBox.getPositionForPoint(Offset(point.dx, y)).offset);
   }
 
   /// Moves the caret to the neighbouring paragraph (arrow keys at an edge).
@@ -988,22 +1125,41 @@ class WriterPageState extends State<WriterPage> {
     final gap = areaGap * _scale;
     final estimate = _areaEstimate(_header) + _areaEstimate(_footer);
     final bodyMin = (minHeight - 2 * margin - estimate).clamp(0.0, double.infinity);
-    return Container(
+    final dark = theme.brightness == Brightness.dark;
+    // The paper is painted behind the content by a detector that receives
+    // only the taps nothing on the page takes (margins, gaps between and
+    // below paragraphs) and puts the caret on the nearest line, as in Word.
+    // Text, pictures, tables and handles get their own taps first.
+    return SizedBox(
       width: width,
-      decoration: BoxDecoration(
-        color: theme.brightness == Brightness.dark ? const Color(0xFF2B2B2B) : Colors.white,
-        boxShadow: shadow ? const [BoxShadow(blurRadius: 6, color: Color(0x33000000))] : null,
-      ),
-      padding: EdgeInsets.all(margin),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Stack(
         children: [
-          if (header != null) ...[header, SizedBox(height: gap)],
-          ConstrainedBox(
-            constraints: BoxConstraints(minHeight: bodyMin),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: body),
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (d) => _placeCaretAt(d.globalPosition),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: dark ? const Color(0xFF2B2B2B) : Colors.white,
+                  boxShadow: shadow ? const [BoxShadow(blurRadius: 6, color: Color(0x33000000))] : null,
+                ),
+              ),
+            ),
           ),
-          if (footer != null) ...[SizedBox(height: gap), footer],
+          Padding(
+            padding: EdgeInsets.all(margin),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (header != null) ...[header, SizedBox(height: gap)],
+                ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: bodyMin),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: body),
+                ),
+                if (footer != null) ...[SizedBox(height: gap), footer],
+              ],
+            ),
+          ),
         ],
       ),
     );
