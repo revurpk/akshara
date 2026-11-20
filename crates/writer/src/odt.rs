@@ -7,9 +7,12 @@
 //! subscript, colour, highlight, size), links, alignment, left indent and
 //! space above paragraphs, page number and page count fields, metadata, page
 //! size and margin, and the page header and footer of the default master
-//! page. Images, frames, other fields, footnotes, comments and tracked
-//! changes are not modelled; their text content is kept where it is part of
-//! the flow.
+//! page. Pictures, Mermaid diagrams (SVG pictures with their source in the
+//! description) and drawings (embedded OpenDocument Graphics objects, or
+//! shapes anchored in a paragraph) are kept as blocks of their own; text
+//! frames contribute their paragraphs. Other fields, footnotes, comments
+//! and tracked changes are not modelled; their text content is kept where
+//! it is part of the flow.
 
 use crate::document::Document;
 use crate::model::*;
@@ -187,6 +190,32 @@ struct Importer<'a> {
     limits: &'a Limits,
     blocks: Vec<Block>,
     block_count: usize,
+    /// The package (pictures, embedded drawings) and a reader for shapes
+    /// anchored in the text.
+    package: Option<&'a Package>,
+    shapes: Option<office_draw::odg::ShapeReader<'a>>,
+    /// Width available for pictures without a size.
+    text_width: f32,
+}
+
+/// Frames and shapes anchored in a paragraph (inside spans and links too).
+fn anchored<'e>(e: &'e Element, out: &mut Vec<&'e Element>, depth: usize) {
+    if depth > 16 {
+        return;
+    }
+    for child in e.elements() {
+        match child.name.as_str() {
+            "draw:frame" => out.push(child),
+            n if office_draw::odg::is_shape_element(n) => out.push(child),
+            "text:span" | "draw:a" | "text:a" => anchored(child, out, depth + 1),
+            _ => {}
+        }
+    }
+}
+
+fn frame_align(e: &Element, para_align: Align) -> Align {
+    let _ = e;
+    para_align
 }
 
 impl Importer<'_> {
@@ -400,16 +429,131 @@ impl Importer<'_> {
 
     /// A top-level paragraph; an empty body paragraph that only carries a
     /// page break becomes just the break (this is how breaks are saved).
-    fn top_paragraph(&mut self, e: &Element) -> Result<()> {
+    fn top_paragraph(&mut self, e: &Element, depth: usize) -> Result<()> {
         let p = self.paragraph(e, None)?;
+        let mut frames = Vec::new();
+        anchored(e, &mut frames, 0);
         let only_break = p.kind == ParaKind::Normal
             && p.text().is_empty()
             && matches!(self.blocks.last(), Some(Block::PageBreak))
             && self.resolved(e.attr("text:style-name")).break_before;
-        if !only_break {
+        // A paragraph that only holds pictures becomes just the pictures.
+        let only_frames = !frames.is_empty() && p.kind == ParaKind::Normal && p.text().trim().is_empty();
+        let align = p.align;
+        if !only_break && !only_frames {
             self.blocks.push(Block::Paragraph(p));
         }
+        self.frames(&frames, align, depth)
+    }
+
+    /// Turns anchored frames and shapes into blocks: pictures, diagrams,
+    /// drawings (loose shapes are gathered into one canvas) and the
+    /// paragraphs of text frames.
+    fn frames(&mut self, frames: &[&Element], align: Align, depth: usize) -> Result<()> {
+        let mut loose: Vec<&Element> = Vec::new();
+        for f in frames {
+            if f.name != "draw:frame" {
+                loose.push(f);
+                continue;
+            }
+            if let Some(block) = self.frame_block(f, align)? {
+                self.count_block()?;
+                self.blocks.push(block);
+            } else if let Some(tb) = f.child("draw:text-box") {
+                if depth < 8 {
+                    self.body(tb, depth + 1)?;
+                }
+            }
+        }
+        if loose.is_empty() {
+            return Ok(());
+        }
+        let Some(reader) = self.shapes.as_mut() else { return Ok(()) };
+        let mut shapes = reader.shapes(&loose)?;
+        if shapes.is_empty() {
+            return Ok(());
+        }
+        // Shapes are positioned relative to their anchor: move them into a
+        // canvas of their bounding box.
+        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for s in &shapes {
+            let (x, y, w, h) = s.bounds();
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x + w);
+            y1 = y1.max(y + h);
+        }
+        for s in &mut shapes {
+            s.x -= x0;
+            s.y -= y0;
+        }
+        let mut canvas = Canvas::new((x1 - x0).max(MIN_FRAME_SIDE), (y1 - y0).max(MIN_FRAME_SIDE));
+        canvas.align = align;
+        canvas.shapes = shapes;
+        canvas.normalize();
+        self.count_block()?;
+        self.blocks.push(Block::Drawing(canvas));
         Ok(())
+    }
+
+    /// A picture, diagram or embedded drawing frame as a block.
+    fn frame_block(&mut self, f: &Element, align: Align) -> Result<Option<Block>> {
+        let length = |a: &str| f.attr(a).and_then(parse_length_pt).map(|v| v as f32).filter(|v| v.is_finite() && *v > 0.0);
+        let (width, height) = (length("svg:width"), length("svg:height"));
+        let align = frame_align(f, align);
+        let Some(package) = self.package else { return Ok(None) };
+        let desc = f.child("svg:desc").map(Element::text_content);
+        let is_diagram = f.attr("draw:name").is_some_and(|n| n.starts_with(office_draw::odg::DIAGRAM_NAME))
+            || f.child("svg:title").is_some_and(|t| t.text_content() == office_draw::odg::DIAGRAM_NAME);
+        if let (true, Some(source)) = (is_diagram, desc.clone()) {
+            let mut d = Diagram { source, width: width.unwrap_or(300.0), align };
+            d.normalize();
+            return Ok(Some(Block::Diagram(d)));
+        }
+        if let Some(obj) = f.child("draw:object") {
+            let dir = obj.attr("xlink:href").unwrap_or("").trim_start_matches("./").trim_end_matches('/');
+            if !dir.is_empty() && !dir.contains("..") && package.get(&format!("{dir}/content.xml")).is_some() {
+                if let Ok((office_draw::DrawingKind::Drawing, w, h, pages, _)) = office_draw::odg::load_package(package, &format!("{dir}/"), self.limits) {
+                    let mut canvas = Canvas::new(width.unwrap_or(w), height.unwrap_or(h));
+                    // Scale the object's page to the frame.
+                    let (kx, ky) = (canvas.width / w, canvas.height / h);
+                    canvas.shapes = pages.into_iter().next().map(|p| p.shapes).unwrap_or_default();
+                    for s in &mut canvas.shapes {
+                        s.x *= kx;
+                        s.y *= ky;
+                        s.w *= kx;
+                        s.h *= ky;
+                    }
+                    canvas.align = align;
+                    canvas.normalize();
+                    return Ok(Some(Block::Drawing(canvas)));
+                }
+            }
+        }
+        for img in f.children_named("draw:image") {
+            let image = match img.attr("xlink:href") {
+                Some(href) if !href.contains("://") && !href.starts_with('/') => {
+                    package.get(href.trim_start_matches("./")).and_then(|b| office_draw::Image::from_bytes(b.to_vec()).ok())
+                }
+                Some(_) => None,
+                None => img
+                    .child("office:binary-data")
+                    .and_then(|b| office_draw::image::base64_decode(&b.text_content()).ok())
+                    .and_then(|b| office_draw::Image::from_bytes(b).ok()),
+            };
+            if let Some(image) = image {
+                let mut p = Picture::new(image, self.text_width);
+                if let (Some(w), Some(h)) = (width, height) {
+                    p.width = w;
+                    p.height = h;
+                }
+                p.align = align;
+                p.description = desc.clone().or_else(|| f.child("svg:title").map(Element::text_content)).unwrap_or_default();
+                p.normalize();
+                return Ok(Some(Block::Image(p)));
+            }
+        }
+        Ok(None)
     }
 
     fn list(&mut self, e: &Element, style: Option<&str>, level: u8, out: &mut Vec<Paragraph>) -> Result<()> {
@@ -532,7 +676,17 @@ impl Importer<'_> {
     fn body(&mut self, parent: &Element, depth: usize) -> Result<()> {
         for child in parent.elements() {
             match child.name.as_str() {
-                "text:p" | "text:h" => self.top_paragraph(child)?,
+                "text:p" | "text:h" => self.top_paragraph(child, depth)?,
+                "draw:frame" | "draw:a" => {
+                    let mut frames = Vec::new();
+                    if child.name == "draw:frame" {
+                        frames.push(child);
+                    } else {
+                        anchored(child, &mut frames, 0);
+                    }
+                    self.frames(&frames, Align::Center, depth)?;
+                }
+                n if office_draw::odg::is_shape_element(n) => self.frames(&[child], Align::Center, depth)?,
                 "text:list" => {
                     let mut out = Vec::new();
                     self.list(child, None, 0, &mut out)?;
@@ -581,8 +735,11 @@ fn push_text(runs: &mut Vec<Run>, text: &str, attrs: &TextAttrs) {
 
 /// Loads a document from the bytes of an `.odt` file.
 pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
-    let package =
-        Package::read_filtered(bytes, limits, |n| matches!(n, "content.xml" | "styles.xml" | "meta.xml"))?;
+    // Everything but previews and editor settings: pictures and embedded
+    // drawings are needed too.
+    let package = Package::read_filtered(bytes, limits, |n| {
+        !(n.starts_with("Thumbnails/") || n.starts_with("Configurations2/") || n == "settings.xml" || n.starts_with("ObjectReplacements/"))
+    })?;
     package.expect_mimetype(&[ns::MIME_ODT])?;
     let content = package.require_xml("content.xml", limits)?;
     let styles_doc = package.get_xml("styles.xml", limits)?;
@@ -598,8 +755,17 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
         }
     }
 
-    let mut importer =
-        Importer { styles: HashMap::new(), list_styles: HashMap::new(), limits, blocks: Vec::new(), block_count: 0 };
+    let docs: Vec<&Element> = [Some(&content), styles_doc.as_ref()].into_iter().flatten().collect();
+    let mut importer = Importer {
+        styles: HashMap::new(),
+        list_styles: HashMap::new(),
+        limits,
+        blocks: Vec::new(),
+        block_count: 0,
+        package: Some(&package),
+        shapes: Some(office_draw::odg::ShapeReader::new(&package, &docs, limits)),
+        text_width: 480.0,
+    };
     let mut page = PageSetup::default();
     let (mut header, mut footer) = (Vec::new(), Vec::new());
     if let Some(styles_doc) = &styles_doc {
@@ -638,6 +804,7 @@ pub fn load_odt(bytes: &[u8], limits: &Limits) -> Result<Document> {
         }
     }
     importer.collect_styles(content.child("office:automatic-styles"), &font_faces, true);
+    importer.text_width = (page.width - 2.0 * page.margin).max(72.0);
 
     let text = content
         .descend(&["office:body", "office:text"])
@@ -1028,7 +1195,97 @@ fn write_blocks<'a>(w: &mut XmlWriter, paragraphs: impl Iterator<Item = &'a Para
     }
 }
 
-fn body_xml(doc: &Document, styles: &mut StyleTable) -> String {
+/// Pictures and embedded drawing objects written with the text.
+#[derive(Default)]
+struct Media {
+    pictures: office_draw::odg::Pictures,
+    /// (folder, content.xml, styles.xml, pictures) of embedded drawings.
+    objects: Vec<(String, String, String, office_draw::odg::Pictures)>,
+    frames: usize,
+}
+
+fn align_style(a: Align) -> &'static str {
+    match a {
+        Align::Left | Align::Justify => "FrameL",
+        Align::Center => "FrameC",
+        Align::Right => "FrameR",
+    }
+}
+
+/// Opens `<text:p><draw:frame ...>` for an as-character frame.
+fn start_frame(w: &mut XmlWriter, media: &mut Media, align: Align, name: &str, width: f32, height: f32) {
+    media.frames += 1;
+    w.start("text:p").attr("text:style-name", align_style(align));
+    w.start("draw:frame")
+        .attr("draw:style-name", "FramePic")
+        .attr("draw:name", &format!("{name} {}", media.frames))
+        .attr("text:anchor-type", "as-char")
+        .attr("svg:width", &format_length_in(f64::from(width)))
+        .attr("svg:height", &format_length_in(f64::from(height)))
+        .attr("draw:z-index", "0");
+}
+
+fn write_image_ref(w: &mut XmlWriter, href: &str, mime: &str) {
+    w.start("draw:image")
+        .attr("xlink:href", href)
+        .attr("xlink:type", "simple")
+        .attr("xlink:show", "embed")
+        .attr("xlink:actuate", "onLoad")
+        .attr("draw:mime-type", mime)
+        .end();
+}
+
+fn write_frame_block(w: &mut XmlWriter, block: &Block, media: &mut Media) {
+    match block {
+        Block::Image(p) => {
+            start_frame(w, media, p.align, "Image", p.width, p.height);
+            let href = media.pictures.add(p.image.package_name("Pictures"), p.image.bytes());
+            write_image_ref(w, &href, p.image.format().mime());
+            if !p.description.is_empty() {
+                w.element_text("svg:desc", &p.description);
+            }
+            w.end().end();
+        }
+        Block::Diagram(d) => {
+            media.frames += 1;
+            w.start("text:p").attr("text:style-name", align_style(d.align));
+            w.start("draw:frame")
+                .attr("draw:style-name", "FramePic")
+                .attr("draw:name", &format!("{} {}", office_draw::odg::DIAGRAM_NAME, media.frames))
+                .attr("text:anchor-type", "as-char")
+                .attr("svg:width", &format_length_in(f64::from(d.width)))
+                .attr("svg:height", &format_length_in(f64::from(d.height())))
+                .attr("draw:z-index", "0");
+            let svg = d.figure().to_svg(None);
+            let href = media.pictures.add(office_draw::odg::diagram_file_name(&d.source), svg.as_bytes());
+            write_image_ref(w, &href, "image/svg+xml");
+            w.element_text("svg:title", office_draw::odg::DIAGRAM_NAME);
+            w.element_text("svg:desc", &d.source);
+            w.end().end();
+        }
+        Block::Drawing(c) => {
+            start_frame(w, media, c.align, "Drawing", c.width, c.height);
+            let dir = format!("Object {}", media.objects.len() + 1);
+            let page = office_draw::Page { shapes: c.shapes.clone(), ..office_draw::Page::default() };
+            let (content, styles, pics) = office_draw::odg::streams(office_draw::DrawingKind::Drawing, &[page], &[String::new()], c.width, c.height);
+            w.start("draw:object")
+                .attr("xlink:href", &format!("./{dir}"))
+                .attr("xlink:type", "simple")
+                .attr("xlink:show", "embed")
+                .attr("xlink:actuate", "onLoad")
+                .end();
+            // A picture of the drawing for applications that cannot edit it.
+            let svg = crate::export::canvas_figure(c).to_svg(None);
+            let replacement = media.pictures.add(format!("Pictures/drawing-{}.svg", media.objects.len() + 1), svg.as_bytes());
+            write_image_ref(w, &replacement, "image/svg+xml");
+            w.end().end();
+            media.objects.push((dir, content, styles, pics));
+        }
+        _ => {}
+    }
+}
+
+fn body_xml(doc: &Document, styles: &mut StyleTable, media: &mut Media) -> String {
     let mut w = XmlWriter::fragment();
     w.start("office:body").start("office:text");
     let mut page_break_next = false;
@@ -1061,6 +1318,14 @@ fn body_xml(doc: &Document, styles: &mut StyleTable) -> String {
                 flush(&mut w, &mut pending, styles);
                 page_break_next = true;
             }
+            frame @ (Block::Image(_) | Block::Diagram(_) | Block::Drawing(_)) => {
+                flush(&mut w, &mut pending, styles);
+                if page_break_next {
+                    w.start("text:p").attr("text:style-name", "PageBreak").end();
+                    page_break_next = false;
+                }
+                write_frame_block(&mut w, frame, media);
+            }
         }
     }
     flush(&mut w, &mut pending, styles);
@@ -1070,12 +1335,12 @@ fn body_xml(doc: &Document, styles: &mut StyleTable) -> String {
     w.finish()
 }
 
-fn content_xml(doc: &Document) -> String {
+fn content_xml(doc: &Document, media: &mut Media) -> String {
     let mut styles = StyleTable::with_prefix("");
-    let body = body_xml(doc, &mut styles);
+    let body = body_xml(doc, &mut styles, media);
     let mut w = XmlWriter::new();
     w.start("office:document-content")
-        .namespaces(&["office", "style", "text", "table", "fo", "xlink", "svg"])
+        .namespaces(&["office", "style", "text", "table", "fo", "xlink", "svg", "draw"])
         .attr("office:version", ns::ODF_VERSION);
     w.start("office:font-face-decls");
     w.start("style:font-face")
@@ -1089,6 +1354,20 @@ fn content_xml(doc: &Document) -> String {
     styles.write(&mut w);
     w.start("style:style").attr("style:name", "PageBreak").attr("style:family", "paragraph").attr("style:parent-style-name", "Standard");
     w.start("style:paragraph-properties").attr("fo:break-before", "page").end();
+    w.end();
+    for (name, align) in [("FrameL", "start"), ("FrameC", "center"), ("FrameR", "end")] {
+        w.start("style:style").attr("style:name", name).attr("style:family", "paragraph").attr("style:parent-style-name", "Standard");
+        w.start("style:paragraph-properties").attr("fo:text-align", align).end();
+        w.end();
+    }
+    w.start("style:style").attr("style:name", "FramePic").attr("style:family", "graphic");
+    w.start("style:graphic-properties")
+        .attr("style:vertical-pos", "top")
+        .attr("style:vertical-rel", "baseline")
+        .attr("draw:fill", "none")
+        .attr("draw:stroke", "none")
+        .attr("fo:border", "none")
+        .end();
     w.end();
     w.start("style:style").attr("style:name", "Tbl").attr("style:family", "table");
     w.start("style:table-properties").attr("table:align", "margins").end();
@@ -1251,7 +1530,15 @@ fn styles_xml(doc: &Document) -> String {
 /// Serialises a document to the bytes of an `.odt` file.
 pub fn save_odt(doc: &Document) -> Result<Vec<u8>> {
     let mut package = Package::new(ns::MIME_ODT);
-    package.insert("content.xml", content_xml(doc).into_bytes())?;
+    let mut media = Media::default();
+    package.insert("content.xml", content_xml(doc, &mut media).into_bytes())?;
+    media.pictures.insert_into(&mut package, "")?;
+    for (dir, content, styles, pics) in media.objects {
+        package.add_sub_document(&dir, ns::MIME_ODG)?;
+        package.insert(format!("{dir}/content.xml"), content.into_bytes())?;
+        package.insert(format!("{dir}/styles.xml"), styles.into_bytes())?;
+        pics.insert_into(&mut package, &format!("{dir}/"))?;
+    }
     package.insert("styles.xml", styles_xml(doc).into_bytes())?;
     package.insert("meta.xml", doc.meta.to_xml().into_bytes())?;
     package.write()

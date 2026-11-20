@@ -105,6 +105,36 @@ scripts/build-native.sh macos   # universal static library (arm64 + x86_64)
 packaging/macos/build-dmg.sh    # dist/akshara-<ver>-macos.dmg
 ```
 
+### Cross-compiling the core from Linux (or Windows)
+
+The Rust core is linked into the app as a **static** library, and building a
+static library needs no Apple linker or SDK. So the macOS core can be built
+on Linux with just rustup (the targets are downloaded once):
+
+```bash
+scripts/build-native.sh macos
+# -> target/universal-apple-darwin/release/libakshara.a (arm64 + x86_64)
+```
+
+The script builds `aarch64-apple-darwin` and `x86_64-apple-darwin` static
+libraries with `cargo rustc --crate-type staticlib` and merges them with
+`lipo` where it exists, otherwise with `tools/fatlib`, a small Rust tool that
+writes the same universal ("fat") file format. `scripts/build-native.sh ios`
+works the same way for the device and simulator libraries.
+
+Flutter's macOS build (Dart AOT compilation for macOS, the Swift runner,
+code signing) and `hdiutil` only exist on macOS, so the app bundle and the
+disk image are made there, from the prebuilt core:
+
+```bash
+# on the Mac, with target/universal-apple-darwin/release/libakshara.a copied over
+packaging/macos/build-dmg.sh --prebuilt-core
+```
+
+`.github/workflows/macos-dmg.yml` automates this: an Ubuntu job
+cross-compiles the core, and a macOS job builds `Akshara.app` and the
+`.dmg` from it (run it from the Actions tab, or push a `v*` tag).
+
 The Rust core is linked statically through `macos/Flutter/Flutter-*.xcconfig`
 (`-force_load` plus `-u` for the three entry points). Release builds are
 sandboxed. For public distribution, sign with a Developer ID and notarize;
@@ -158,6 +188,12 @@ AKSHARA_SCREENSHOT_DIR=/tmp/shots app/build/linux/x64/debug/bundle/akshara doc.o
 This hook is compiled out of release builds.
 
 ## Verified in this repository
+
+The macOS universal and iOS static core libraries were cross-compiled on
+Linux and checked (`file` reports a Mach-O universal binary with x86_64 and
+arm64 slices exporting the three entry points); they have not been linked
+into an app here.
+
 
 The Rust workspace (tests, clippy, rustdoc), the Flutter analyzer and tests,
 and the **Linux** desktop release build and per-user installer were built and

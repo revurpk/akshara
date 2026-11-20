@@ -45,7 +45,7 @@ fn malformed_requests_are_errors_not_crashes() {
     assert_eq!(err_kind(json!({})), "invalid");
     assert_eq!(err_kind(json!({"op": "nope"})), "invalid");
     assert_eq!(err_kind(json!({"op": "info", "doc": 999_999})), "invalid");
-    assert_eq!(err_kind(json!({"op": "new", "kind": "impress"})), "invalid");
+    assert_eq!(err_kind(json!({"op": "new", "kind": "keynote"})), "invalid");
     let mut out_len = 0usize;
     #[allow(unsafe_code)]
     unsafe {
@@ -353,4 +353,126 @@ fn word_and_excel_files_open_read_only() {
     let path = temp("old.doc");
     std::fs::write(&path, ole).expect("write doc");
     assert_eq!(err_kind(json!({"op": "open", "path": path})), "unsupported");
+}
+
+#[test]
+fn impress_and_draw_documents() {
+    let doc = ok(json!({"op": "new", "kind": "impress"}));
+    assert_eq!(doc["kind"], "impress");
+    let d = doc["doc"].clone();
+    let got = ok(json!({"op": "draw.get", "doc": d}));
+    assert_eq!(got["kind"], "impress");
+    assert_eq!(got["pages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(got["pages"][0]["title"], "Slide 1");
+    assert_eq!(got["pages"][0]["shapes"][0]["placeholder"], "title");
+    ok(json!({"op": "draw.add_page", "doc": d, "at": 1, "layout": "content"}));
+    let ids = ok(json!({"op": "shapes.add", "doc": d, "page": 1, "shapes": [
+        {"kind": "ellipse", "x": 10, "y": 10, "w": 100, "h": 50, "text": "Hi", "fill": "#ff0000", "bold": true},
+        {"kind": "diagram", "x": 10, "y": 100, "w": 200, "h": 100, "source": "graph LR\nA-->B"},
+        {"kind": "polygon", "x": 0, "y": 0, "w": 50, "h": 50, "points": [[0, 0], [1, 0], [0.5, 1]]},
+    ]}));
+    let ids: Vec<u64> = ids.as_array().expect("ids").iter().filter_map(Value::as_u64).collect();
+    assert_eq!(ids.len(), 3);
+    let page = ok(json!({"op": "draw.page", "doc": d, "page": 1}));
+    let shapes = page["shapes"].as_array().expect("shapes");
+    assert_eq!(shapes[2]["fill"], "#ff0000");
+    assert_eq!(shapes[2]["style"]["bold"], true);
+    assert!(shapes[3]["figure"]["items"].as_array().is_some_and(|i| !i.is_empty()), "diagrams carry their figure");
+    // Typing in a shape coalesces into one undo step.
+    for text in ["a", "ab", "abc"] {
+        ok(json!({"op": "shapes.update", "doc": d, "page": 1, "key": "text", "updates": [{"id": ids[0], "patch": {"text": text}}]}));
+    }
+    ok(json!({"op": "undo", "doc": d}));
+    assert_eq!(ok(json!({"op": "draw.page", "doc": d, "page": 1}))["shapes"][2]["text"], "Hi");
+    ok(json!({"op": "shapes.order", "doc": d, "page": 1, "id": ids[0], "to": "back"}));
+    assert_eq!(ok(json!({"op": "shapes.copy", "doc": d, "page": 1, "ids": [ids[0]]})), json!(1));
+    let pasted = ok(json!({"op": "shapes.paste", "doc": d, "page": 0}));
+    assert_eq!(pasted.as_array().map(Vec::len), Some(1));
+    ok(json!({"op": "shapes.remove", "doc": d, "page": 1, "ids": [ids[1]]}));
+    ok(json!({"op": "draw.page_props", "doc": d, "page": 1, "name": "Two", "background": "#eeeeee", "notes": "say it"}));
+    ok(json!({"op": "draw.move_page", "doc": d, "from": 1, "to": 0}));
+    ok(json!({"op": "draw.duplicate_page", "doc": d, "page": 0}));
+    assert_eq!(err_kind(json!({"op": "shapes.update", "doc": d, "page": 0, "updates": [{"id": 9999, "patch": {}}]})), "invalid");
+    assert_eq!(err_kind(json!({"op": "shapes.add", "doc": d, "page": 0, "shapes": [{"kind": "blob", "x": 0, "y": 0, "w": 1, "h": 1}]})), "invalid");
+
+    let path = temp("deck.odp");
+    ok(json!({"op": "save", "doc": d, "path": path}));
+    assert_eq!(ok(json!({"op": "info", "doc": d}))["modified"], false);
+    assert_eq!(err_kind(json!({"op": "save", "doc": d, "path": temp("deck.odg")})), "unsupported");
+    let svg = temp("slide.svg");
+    ok(json!({"op": "save", "doc": d, "path": svg, "page": 0}));
+    assert!(std::fs::read_to_string(&svg).expect("svg").contains("<svg"));
+    let back = ok(json!({"op": "open", "path": path}));
+    assert_eq!(back["kind"], "impress");
+    let got = ok(json!({"op": "draw.get", "doc": back["doc"]}));
+    assert_eq!(got["pages"].as_array().map(Vec::len), Some(3));
+    assert_eq!(got["pages"][0]["name"], "Two");
+    assert_eq!(got["pages"][0]["notes"], "say it");
+
+    let draw = ok(json!({"op": "new", "kind": "draw"}));
+    assert_eq!(draw["kind"], "draw");
+    ok(json!({"op": "draw.set_size", "doc": draw["doc"], "width": 400, "height": 300}));
+    assert_eq!(err_kind(json!({"op": "draw.set_size", "doc": draw["doc"], "width": 1, "height": 300})), "invalid");
+    let odg = temp("pic.odg");
+    ok(json!({"op": "save", "doc": draw["doc"], "path": odg}));
+    assert_eq!(ok(json!({"op": "open", "path": odg}))["kind"], "draw");
+    std::fs::write(temp("x.pptx"), b"PK").expect("write");
+    assert_eq!(err_kind(json!({"op": "open", "path": temp("x.pptx")})), "unsupported");
+}
+
+#[test]
+fn writer_pictures_diagrams_and_drawings() {
+    let png = temp("dot.png");
+    std::fs::write(&png, resvg::tiny_skia::Pixmap::new(30, 20).expect("pixmap").encode_png().expect("png")).expect("write");
+    let d = ok(json!({"op": "new", "kind": "writer"}))["doc"].clone();
+    ok(json!({"op": "writer.insert_image", "doc": d, "at": 0, "path": png}));
+    ok(json!({"op": "writer.insert_diagram", "doc": d, "at": 1, "source": "sequenceDiagram\nA->>B: hi"}));
+    ok(json!({"op": "writer.insert_drawing", "doc": d, "at": 2, "width": 200, "height": 100}));
+    let blocks = ok(json!({"op": "writer.get", "doc": d}))["blocks"].clone();
+    assert_eq!(blocks[0]["type"], "image");
+    assert_eq!(blocks[0]["width"], 22.5, "30 px at 96 dpi");
+    assert_eq!(blocks[1]["type"], "diagram");
+    assert!(blocks[1]["height"].as_f64().is_some_and(|h| h > 10.0));
+    assert!(blocks[1]["figure"]["items"].is_array());
+    assert_eq!(blocks[2]["type"], "drawing");
+    let id = blocks[0]["image"].as_str().expect("id").to_owned();
+    let data = ok(json!({"op": "image.data", "doc": d, "id": id}));
+    assert_eq!(data["format"], "png");
+    assert_eq!((data["width"].as_u64(), data["height"].as_u64()), (Some(30), Some(20)));
+    assert!(data["data"].as_str().is_some_and(|s| s.starts_with("iVBOR")));
+    // Shapes in the canvas.
+    let ids = ok(json!({"op": "shapes.add", "doc": d, "block": 2, "shapes": [{"kind": "rect", "x": 0, "y": 0, "w": 50, "h": 20}]}));
+    assert_eq!(ids, json!([1]));
+    ok(json!({"op": "shapes.insert_image", "doc": d, "block": 2, "path": png}));
+    assert_eq!(err_kind(json!({"op": "shapes.add", "doc": d, "block": 0, "shapes": []})), "invalid");
+    ok(json!({"op": "writer.frame", "doc": d, "block": 0, "width": 45, "align": "right", "description": "dot"}));
+    ok(json!({"op": "writer.frame", "doc": d, "block": 1, "source": "pie\n\"a\": 1"}));
+    let blocks = ok(json!({"op": "writer.get", "doc": d}))["blocks"].clone();
+    assert_eq!((blocks[0]["width"].as_f64(), blocks[0]["height"].as_f64()), (Some(45.0), Some(30.0)));
+    assert_eq!(blocks[0]["align"], "right");
+    assert_eq!(blocks[2]["shapes"].as_array().map(Vec::len), Some(2));
+    for ext in ["odt", "docx", "html", "md"] {
+        let path = temp(&format!("pics.{ext}"));
+        ok(json!({"op": "save", "doc": d, "path": path}));
+    }
+    let back = ok(json!({"op": "open", "path": temp("pics.odt")}));
+    let blocks = ok(json!({"op": "writer.get", "doc": back["doc"]}))["blocks"].clone();
+    assert_eq!(blocks[0]["description"], "dot");
+    assert_eq!(blocks[1]["source"], "pie\n\"a\": 1");
+    assert_eq!(blocks[2]["shapes"].as_array().map(Vec::len), Some(2));
+    let bad = temp("bad.png");
+    std::fs::write(&bad, b"not a picture").expect("write");
+    assert_eq!(err_kind(json!({"op": "writer.insert_image", "doc": d, "at": 0, "path": bad})), "unsupported");
+}
+
+#[test]
+fn mermaid_preview_is_stateless_and_total() {
+    let r = ok(json!({"op": "mermaid.render", "source": "graph TD\nA-->"}));
+    assert_eq!(r["kind"], "flowchart");
+    assert_eq!(r["errors"].as_array().map(Vec::len), Some(1));
+    assert!(r["figure"]["width"].as_f64().is_some_and(|w| w > 0.0));
+    let svg = ok(json!({"op": "mermaid.svg", "source": "pie\n\"x\": 2"}));
+    assert!(svg.as_str().is_some_and(|s| s.starts_with("<svg")));
+    let huge = "graph TD\n".to_owned() + &"A-->B\n".repeat(20_000);
+    assert_eq!(err_kind(json!({"op": "mermaid.render", "source": huge})), "limit");
 }

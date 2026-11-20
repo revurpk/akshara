@@ -9,6 +9,8 @@ C ABI carrying JSON.
 │ main.dart: shell, tabs, home screen, language & theme              │
 │ writer/    paragraph editors (one TextField per paragraph)         │
 │ calc/      custom-painted virtual grid, formula bar, sheet tabs    │
+│ draw/      Impress & Draw: shape editor, slide pane, slide show,   │
+│            shape/figure painter, Mermaid editor (also in Writer)   │
 │ math/      StarMath editor + widget-based formula renderer         │
 │ core/      native.dart (dart:ffi), file dialog, paths, fonts, look │
 │ l10n/      9 UI languages                                          │
@@ -16,8 +18,10 @@ C ABI carrying JSON.
                 │ akshara_call(JSON) -> JSON   (crates/ffi, C ABI)
 ┌───────────────┴──────────────────── Rust core ─────────────────────┐
 │ ffi     registry of open documents, request dispatcher             │
-│ writer  Document model, editing + undo, ODT, HTML/Markdown/text    │
+│ writer  Document model, editing + undo, ODT, DOCX, HTML/Markdown   │
 │ calc    Workbook, formula parser/evaluator, dependency graph, ODS  │
+│ draw    shapes, slides/pages + undo, pictures, Mermaid, ODP/ODG,   │
+│         SVG and PNG (resvg)                                        │
 │ math    StarMath lexer/parser, AST, MathML in/out, .odf            │
 │ indic   transliteration (7 scripts) on vendored teltools           │
 │ odf     hardened ZIP package + strict XML parser/writer, limits    │
@@ -66,6 +70,41 @@ C ABI carrying JSON.
 - ODT import resolves style inheritance. Run attributes come only from
   *automatic* styles, while named styles determine the paragraph kind. Lists
   are nested and can mix bullet and numbered levels.
+
+- Pictures, Mermaid diagrams and drawing canvases are blocks of their own
+  (`Block::Image`, `Block::Diagram`, `Block::Drawing`), between paragraphs.
+  In ODT they are `draw:frame`s: pictures in `Pictures/`, diagrams as SVG
+  pictures with the Mermaid source in `svg:desc`, and canvases as embedded
+  OpenDocument Graphics objects (`Object N/`). DOCX gets DrawingML pictures
+  with an SVG blip and a PNG fallback rendered by resvg.
+
+### `office-draw`
+- `model`: a `Shape` is a box (or a line from `(x, y)` to `(x+w, y+h)`) with
+  a kind (rectangle, rounded rectangle, ellipse, triangle, diamond, polygon,
+  text box, picture, Mermaid diagram), rotation, fill, outline, arrowheads,
+  text and one text style, and an optional presentation placeholder role.
+  `ops` validates and edits shape lists; it is shared by `Drawing` pages and
+  Writer canvases, each wrapping it in its own undo transaction.
+- `Drawing`: pages (slides) with names, backgrounds and notes, slide
+  layouts, and the same snapshot undo as Writer; repeated edits with a key
+  (typing in a shape, nudging) coalesce into one step.
+- `Image`: the original bytes behind an `Arc` (undo snapshots stay cheap);
+  the format is sniffed from the content and the size read from the header.
+- `mermaid`: line-oriented, total parsers for flowcharts, sequence, class and
+  state diagrams and pie charts, and a layered (Sugiyama) layout: cycle
+  removal, longest-path ranking, dummy nodes for long edges and labels,
+  barycentric crossing reduction, iterative coordinate placement, cluster
+  boxes. Every phase is iterative with explicit budgets, so hostile input
+  cannot exhaust the stack or take long. The output is a `Figure`: a flat
+  list of primitives (rectangles, ellipses, polylines with arrowheads,
+  wedges, text) that the Flutter app paints with its own fonts and the core
+  turns into SVG.
+- `odg`: ODP/ODG import and export with style resolution (graphic,
+  presentation, paragraph and text families, parents, defaults), master page
+  decorations, transforms, custom shapes, paths (flattened), notes. The
+  shape reader is reused for shapes anchored in Writer documents.
+- `render`: SVG to PNG through resvg/tiny-skia (pure Rust) with the app's
+  bundled fonts; external files referenced by SVGs are never read.
 
 ### `office-calc`
 - `formula`: a precedence-climbing parser for both the UI syntax
@@ -133,6 +172,13 @@ C ABI carrying JSON.
   × 1024 grid, fetched with `calc.view`. It supports text overflow into empty
   neighbours, `###` for numbers that don't fit, resizable columns, keyboard
   navigation, an in-cell editor, a formula bar and clipboard support (TSV).
+- **Impress and Draw** (`draw/`): the core sends each page as JSON shapes
+  (diagrams carry their laid-out figure). `shape_paint.dart` paints shapes,
+  figures and pictures (decoded once per document in `CoreImages`);
+  `shape_editor.dart` handles selection, moving, resizing (rotated shapes
+  keep their anchor), drawing, in-place text editing and the keyboard, and
+  sends one `shapes.update` per gesture. The same editor edits Writer
+  drawings. The slide show and printing use the read-only painter.
 - **Math**: the parser's JSON tree is rendered with nested widgets: stacked
   fractions, shrunken scripts, painted radicals, and stretchy brackets painted
   to the height of their content.

@@ -13,6 +13,9 @@ import '../core/document.dart';
 import '../core/file_dialog.dart';
 import '../core/native.dart';
 import '../core/translit.dart';
+import '../draw/mermaid_dialog.dart';
+import '../draw/shape_editor.dart';
+import '../draw/shape_paint.dart';
 import 'page_dialogs.dart';
 import '../core/print_preview.dart';
 import 'page_view.dart';
@@ -98,6 +101,14 @@ class WriterPageState extends State<WriterPage> {
   final _findTranslit = TransliterationFormatter();
   final _replaceTranslit = TransliterationFormatter();
 
+  /// The picture, diagram or drawing block that is selected, if any.
+  int? _frame;
+  final _frameFocus = FocusNode(debugLabel: 'frame');
+
+  /// Size change while a frame's resize handle is dragged (points).
+  Offset _resize = Offset.zero;
+  final Map<int, ShapeEditorController> _canvases = {};
+
   int get _doc => widget.doc.handle;
 
   @override
@@ -117,6 +128,11 @@ class WriterPageState extends State<WriterPage> {
     _findText.dispose();
     _replaceText.dispose();
     _scroll.dispose();
+    _frameFocus.dispose();
+    for (final c in _canvases.values) {
+      c.dispose();
+    }
+    CoreImages.instance.forget(_doc);
     super.dispose();
   }
 
@@ -173,6 +189,10 @@ class WriterPageState extends State<WriterPage> {
             }
           }
         }
+      }
+      if (_frame != null && (_frame! >= _blocks.length || !_isFrame(_blocks[_frame!] as Map<String, dynamic>))) _frame = null;
+      for (final b in _canvases.keys.toList()) {
+        if (b >= _blocks.length || (_blocks[b] as Map<String, dynamic>)['type'] != 'drawing') _canvases.remove(b)?.dispose();
       }
       for (final key in _controllers.keys.toList()) {
         if (!live.contains(key)) {
@@ -353,10 +373,257 @@ class WriterPageState extends State<WriterPage> {
   }
 
   void onFocused(ParaRef ref) {
-    if (_current != ref) {
+    if (_current != ref || _frame != null) {
       _call('writer.break_undo');
-      setState(() => _current = ref);
+      setState(() {
+        _current = ref;
+        _frame = null;
+      });
     }
+  }
+
+  // ---- pictures, diagrams and drawings -----------------------------------------------
+
+  static bool _isFrame(Map<String, dynamic> block) => const {'image', 'diagram', 'drawing'}.contains(block['type']);
+
+  int get _insertAt => _current.isBody ? _current.block + 1 : _blocks.length;
+
+  void _selectFrame(int b) {
+    if (_frame == b) return;
+    _call('writer.break_undo');
+    setState(() => _frame = b);
+    if (!_frameFocus.hasFocus) _frameFocus.requestFocus();
+  }
+
+  Future<void> _insertPicture() async {
+    final path = await showPictureDialog(context);
+    if (path == null) return;
+    final at = _insertAt;
+    if (_call('writer.insert_image', {'at': at, 'path': path}) != null || mounted) {
+      _reload();
+      _selectFrame(at);
+    }
+  }
+
+  Future<void> _insertDiagram() async {
+    final source = await showMermaidDialog(context);
+    if (source == null) return;
+    final at = _insertAt;
+    _call('writer.insert_diagram', {'at': at, 'source': source});
+    _reload();
+    _selectFrame(at);
+  }
+
+  void _insertDrawing() {
+    final at = _insertAt;
+    _call('writer.insert_drawing', {'at': at});
+    _reload();
+    _selectFrame(at);
+  }
+
+  Future<void> _editFrame(int b) async {
+    final block = _blocks[b] as Map<String, dynamic>;
+    switch (block['type']) {
+      case 'diagram':
+        final source = await showMermaidDialog(context, initial: block['source'] as String? ?? '');
+        if (source == null) return;
+        _call('writer.frame', {'block': b, 'source': source});
+      case 'image':
+        final text = await askText(context, t('Alternative text'), initial: block['description'] as String? ?? '', label: t('Describe the picture for people who cannot see it'));
+        if (text == null) return;
+        _call('writer.frame', {'block': b, 'description': text});
+      default:
+        return;
+    }
+    _reload();
+  }
+
+  void _removeFrame(int b) {
+    _call('writer.remove_block', {'at': b});
+    _frame = null;
+    _reload(focus: ParaRef(b.clamp(0, _blocks.length - 1)));
+  }
+
+  ShapeEditorController _canvas(int b) => _canvases.putIfAbsent(
+        b,
+        () => ShapeEditorController(doc: _doc, onChanged: _reload, onError: (m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m))))
+          ..target = {'block': b}
+          ..editDiagram = (source) => showMermaidDialog(context, initial: source),
+      );
+
+  /// Size of a frame block in points, with the resize preview applied.
+  Size _frameSize(int b, Map<String, dynamic> block) {
+    var w = ((block['width'] as num?) ?? 100).toDouble();
+    var h = ((block['height'] as num?) ?? 100).toDouble();
+    if (_frame == b && _resize != Offset.zero) {
+      final nw = (w + _resize.dx).clamp(8.0, 14400.0);
+      h = block['type'] == 'drawing' ? (h + _resize.dy).clamp(8.0, 14400.0) : h * nw / w;
+      w = nw;
+    }
+    return Size(w, h);
+  }
+
+  Widget _frameBlock(int b, Map<String, dynamic> block, ThemeData theme) {
+    final selected = _frame == b;
+    final size = _frameSize(b, block);
+    final w = size.width * _scale, h = size.height * _scale;
+    final Widget content = switch (block['type']) {
+      'image' => CoreImage(doc: _doc, id: block['image'] as String, width: w, height: h),
+      'diagram' => Container(color: Colors.white, child: FigureView(figure: block['figure'] as Map<String, dynamic>, width: w, height: h)),
+      _ => DecoratedBox(
+          decoration: BoxDecoration(border: Border.all(color: theme.colorScheme.outlineVariant.withValues(alpha: 0.7))),
+          child: ShapeEditor(
+            controller: _canvas(b),
+            shapes: block['shapes'] as List<dynamic>? ?? const [],
+            width: size.width,
+            height: size.height,
+            scale: _scale,
+            background: Colors.white,
+          ),
+        ),
+    };
+    final drawing = block['type'] == 'drawing';
+    final frame = Listener(
+      onPointerDown: (_) => _selectFrame(b),
+      child: GestureDetector(
+        onDoubleTap: drawing ? null : () => _editFrame(b),
+        onSecondaryTapUp: drawing ? null : (d) => _frameMenu(d.globalPosition, b),
+        onLongPressStart: drawing ? null : (d) => _frameMenu(d.globalPosition, b),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: selected ? theme.colorScheme.primary : Colors.transparent, width: 2),
+              ),
+              child: content,
+            ),
+            if (selected)
+              Positioned(
+                right: -6,
+                bottom: -6,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeDownRight,
+                  child: GestureDetector(
+                    onPanUpdate: (d) => setState(() => _resize += d.delta / _scale),
+                    onPanEnd: (_) {
+                      final s = _frameSize(b, block);
+                      setState(() => _resize = Offset.zero);
+                      _call('writer.frame', {'block': b, 'width': s.width, if (drawing) 'height': s.height});
+                      _reload();
+                    },
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(color: Colors.white, border: Border.all(color: theme.colorScheme.primary, width: 1.5)),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    return Padding(
+      key: ValueKey('frame-$b'),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Align(
+        alignment: switch (block['align']) { 'left' || 'justify' => Alignment.centerLeft, 'right' => Alignment.centerRight, _ => Alignment.center },
+        child: Focus(
+          focusNode: selected ? _frameFocus : null,
+          onKeyEvent: (node, e) {
+            if (!selected || drawing || e is! KeyDownEvent) return KeyEventResult.ignored;
+            if (e.logicalKey == LogicalKeyboardKey.delete || e.logicalKey == LogicalKeyboardKey.backspace) {
+              _removeFrame(b);
+              return KeyEventResult.handled;
+            }
+            return KeyEventResult.ignored;
+          },
+          child: frame,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _frameMenu(Offset pos, int b) async {
+    final type = (_blocks[b] as Map<String, dynamic>)['type'];
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(pos.dx, pos.dy, pos.dx, pos.dy),
+      items: [
+        if (type == 'diagram') PopupMenuItem(value: 'edit', child: Text(t('Edit diagram…'))),
+        if (type == 'image') PopupMenuItem(value: 'edit', child: Text(t('Alternative text…'))),
+        PopupMenuItem(value: 'left', child: Text(t('Align left'))),
+        PopupMenuItem(value: 'center', child: Text(t('Centre'))),
+        PopupMenuItem(value: 'right', child: Text(t('Align right'))),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'delete', child: Text(t('Delete'))),
+      ],
+    );
+    switch (action) {
+      case 'edit':
+        await _editFrame(b);
+      case 'left' || 'center' || 'right':
+        _call('writer.frame', {'block': b, 'align': action});
+        _reload();
+      case 'delete':
+        _removeFrame(b);
+    }
+  }
+
+  /// Contextual toolbar of the selected frame.
+  Widget _frameBar(ThemeData theme, int b) {
+    final block = _blocks[b] as Map<String, dynamic>;
+    final type = block['type'];
+    final common = <Widget>[
+      for (final (a, icon, tip) in [
+        ('left', Icons.format_align_left, 'Align left'),
+        ('center', Icons.format_align_center, 'Centre'),
+        ('right', Icons.format_align_right, 'Align right'),
+      ])
+        IconButton(
+          tooltip: t(tip),
+          isSelected: block['align'] == a,
+          icon: Icon(icon),
+          onPressed: () {
+            _call('writer.frame', {'block': b, 'align': a});
+            _reload();
+          },
+        ),
+      if (type == 'diagram') TextButton.icon(onPressed: () => _editFrame(b), icon: const Icon(Icons.edit_outlined), label: Text(t('Edit diagram…'))),
+      if (type == 'image') TextButton.icon(onPressed: () => _editFrame(b), icon: const Icon(Icons.short_text), label: Text(t('Alternative text…'))),
+      IconButton(tooltip: t('Delete'), icon: const Icon(Icons.delete_outline), onPressed: () => _removeFrame(b)),
+      IconButton(tooltip: t('Close'), icon: const Icon(Icons.close), onPressed: () => setState(() => _frame = null)),
+    ];
+    if (type == 'drawing') {
+      final c = _canvas(b);
+      return ShapeToolbar(
+        controller: c,
+        onInsertPicture: () async {
+          final path = await showPictureDialog(context);
+          if (path != null) c.insertPicture(path);
+        },
+        onInsertDiagram: () async {
+          final source = await showMermaidDialog(context);
+          if (source != null) c.insertDiagram(source);
+        },
+        trailing: [const SizedBox(height: 28, child: VerticalDivider(width: 12)), ...common],
+      );
+    }
+    return Material(
+      color: theme.colorScheme.surfaceContainerHigh,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        child: Row(children: [
+          Icon(type == 'image' ? Icons.image_outlined : Icons.account_tree_outlined, size: 20),
+          const SizedBox(width: 8),
+          Text(type == 'image' ? t('Picture') : t('Diagram')),
+          const SizedBox(width: 8),
+          ...common,
+        ]),
+      ),
+    );
   }
 
   void undo() => _history('undo');
@@ -533,10 +800,17 @@ class WriterPageState extends State<WriterPage> {
     }
   }
 
-  void _print({bool pdfOnly = false}) {
+  Future<void> _print({bool pdfOnly = false}) async {
     final got = _call('writer.get') as Map<String, dynamic>?;
     if (got == null) return;
-    showPrintPreview(context, writerPrintJob(got, title: widget.doc.title), pdfOnly: pdfOnly);
+    final ids = <String>[];
+    for (final b in (got['blocks'] as List<dynamic>).cast<Map<String, dynamic>>()) {
+      if (b['type'] == 'image') ids.add(b['image'] as String);
+      if (b['type'] == 'drawing') ids.addAll(shapeImageIds(b['shapes'] as List<dynamic>));
+    }
+    await CoreImages.instance.preload(_doc, ids);
+    if (!mounted) return;
+    showPrintPreview(context, writerPrintJob(got, title: widget.doc.title, doc: _doc), pdfOnly: pdfOnly);
   }
 
   void _tableAction(int block, int row, int col, String action) {
@@ -626,6 +900,7 @@ class WriterPageState extends State<WriterPage> {
       child: Column(
         children: [
           _toolbar(theme),
+          if (_frame != null && _frame! < _blocks.length) _frameBar(theme, _frame!),
           if (_showFind) _findBar(theme),
           const Divider(height: 1),
           Expanded(
@@ -775,6 +1050,9 @@ class WriterPageState extends State<WriterPage> {
           sheets.last.add(_table(b, block, theme));
         case 'page_break':
           sheets.add([]);
+        case 'image' || 'diagram' || 'drawing':
+          counters.fillRange(0, 10, 0);
+          sheets.last.add(_frameBlock(b, block, theme));
       }
     }
     return sheets;
@@ -933,6 +1211,20 @@ class WriterPageState extends State<WriterPage> {
             const _Sep(),
             IconButton(tooltip: t('Insert table'), icon: const Icon(Icons.table_chart_outlined), onPressed: _current.isBody ? _insertTable : null),
             IconButton(tooltip: t('Insert page break'), icon: const Icon(Icons.insert_page_break_outlined), onPressed: _current.isBody ? _insertPageBreak : null),
+            PopupMenuButton<String>(
+              tooltip: t('Insert picture, diagram or drawing'),
+              icon: const Icon(Icons.add_photo_alternate_outlined),
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'picture', child: ListTile(leading: const Icon(Icons.image_outlined), title: Text(t('Picture…')))),
+                PopupMenuItem(value: 'diagram', child: ListTile(leading: const Icon(Icons.account_tree_outlined), title: Text(t('Diagram (Mermaid)…')))),
+                PopupMenuItem(value: 'drawing', child: ListTile(leading: const Icon(Icons.draw_outlined), title: Text(t('Drawing')))),
+              ],
+              onSelected: (v) => switch (v) {
+                'picture' => _insertPicture(),
+                'diagram' => _insertDiagram(),
+                _ => _insertDrawing(),
+              },
+            ),
             _pageMenu(),
             IconButton(tooltip: t('Print (Ctrl+P)'), icon: const Icon(Icons.print_outlined), onPressed: _print),
             PopupMenuButton<String>(

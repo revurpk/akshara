@@ -5,12 +5,14 @@
 **Akshara** (अक्षर, "letter, syllable" and also "imperishable") is a secure,
 offline, cross-platform office suite for **English and Indian languages**.
 It reads and writes the OpenDocument formats used by Apache OpenOffice and
-LibreOffice. It starts with three applications:
+LibreOffice. It has five applications:
 
 | App | Does | Native format | Also opens / saves |
 |---|---|---|---|
-| **Writer** · लेखक | Word processing | `.odt` | Word `.docx`, `.txt` · exports `.html`, `.md`, `.pdf`; prints |
+| **Writer** · लेखक | Word processing with pictures, Mermaid diagrams and drawings | `.odt` | Word `.docx`, `.txt` · exports `.html`, `.md`, `.pdf`; prints |
 | **Calc** · गणक | Spreadsheets, 131 functions | `.ods` | Excel `.xlsx`, `.csv`, `.tsv` |
+| **Impress** · प्रस्तुति | Presentations: slides, layouts, speaker notes, slide show | `.odp` | exports `.svg`, `.png`, `.pdf`; prints |
+| **Draw** · चित्रकार | Vector drawings and diagrams | `.odg` | exports `.svg`, `.png`, `.pdf`; prints |
 | **Math** · गणित | Formula editor (StarMath language) | `.odf` | `.mml` (MathML) |
 
 The core is written in **Rust** and the user interface in **Flutter**. It
@@ -42,6 +44,11 @@ access and no administrator rights**.
 - **Bundled Google Noto fonts** (SIL Open Font License) for Latin,
   Devanagari, Bengali, Odia, Telugu, Tamil, Kannada, Malayalam and maths. Text
   looks the same on every device, even without system fonts.
+- **Diagrams as code, offline:** write [Mermaid](https://mermaid.js.org)
+  (flowcharts, sequence, class and state diagrams, pie charts) in Writer,
+  Impress or Draw and see it drawn as you type. Diagrams are laid out by
+  Akshara's own Rust engine (no JavaScript, no network) and saved as SVG
+  pictures that keep their source, so they stay editable.
 - **Made for Indian users:** lakh/crore digit grouping (`12,34,567.00`),
   rupee amounts (`₹2,50,000` is recognised as you type), DD-MM-YYYY dates, and
   Indic text inside formulas.
@@ -50,9 +57,9 @@ access and no administrator rights**.
   See [docs/security.md](docs/security.md).
 - **Open formats:** ODF 1.2 output that OpenOffice and LibreOffice can open.
   The output is deterministic, and saves are atomic.
-- **Tested:** 182 Rust tests (unit, behavioural and property-based fuzzing of
+- **Tested:** 267 Rust tests (unit, behavioural and property-based fuzzing of
   every parser) plus 16 for the vendored teltools (byte-identical with
-  upstream's own test vectors), and 31 Flutter tests that drive the real Rust
+  upstream's own test vectors), and 47 Flutter tests that drive the real Rust
   library.
 
 ## Quick start (desktop)
@@ -88,13 +95,15 @@ tools it needs.
 
 ```
 crates/odf      Hardened ZIP + XML (OpenDocument packages), limits, metadata
-crates/writer   Text document model, editing + undo, ODT / HTML / Markdown
+crates/writer   Text document model, editing + undo, ODT / DOCX / HTML / Markdown
+crates/draw     Shapes, slides and pages, pictures, Mermaid engine, ODP / ODG, SVG / PNG
 crates/calc     Spreadsheet engine: formulas, 131 functions, recalculation, ODS / CSV
 crates/math     StarMath parser, MathML import/export, ODF formula files
 crates/indic    Indic transliteration for 7 scripts, built on teltools
 crates/ffi      C ABI (3 functions, JSON protocol) used by Flutter via dart:ffi
 third_party/teltools  teltools by Pradyumna Revur (Apache-2.0), vendored
 tools/icongen   Renders branding/*.svg into every platform's icons
+tools/fatlib    Merges macOS static libraries into a universal one (lipo for Linux)
 app/            Flutter application (lib/, platform projects, fonts, tests)
 packaging/      Per-user installers for Linux, Windows, macOS, Android, iOS
 scripts/        Native build helper
@@ -104,16 +113,16 @@ docs/           Architecture, security, protocol, building, user guide
 ## Testing
 
 ```bash
-cargo test --workspace                       # Rust: 182 tests incl. property tests
+cargo test --workspace                       # Rust: 267 tests incl. property tests
 (cd third_party/teltools && cargo test)      # vendored teltools vs upstream vectors
 cargo clippy --workspace --all-targets       # lint (clean)
-cargo build -p akshara-ffi && (cd app && flutter test)   # Flutter: 31 tests, real core
+cargo build -p akshara-ffi && (cd app && flutter test)   # Flutter: 47 tests, real core
 (cd app && flutter analyze)                  # Dart analyzer (clean)
 ```
 
 ## Documentation
 
-- [User guide](docs/user-guide.md): Writer, Calc, Math, shortcuts, typing Indic text
+- [User guide](docs/user-guide.md): Writer, Calc, Impress, Draw, Math, diagrams, typing Indic text
 - [Architecture](docs/architecture.md): how the pieces fit together
 - [Security model](docs/security.md): threat model and defences
 - [FFI protocol](docs/ffi-protocol.md): the JSON API between Flutter and Rust
@@ -124,10 +133,11 @@ cargo build -p akshara-ffi && (cd app && flutter test)   # Flutter: 31 tests, re
 
 Akshara is a new, independent implementation, **not a port of the
 OpenOffice C++ code base**. It covers the core of each application: rich text
-with lists and tables; multi-sheet workbooks with styles, number formats and
-an incremental formula engine; and the full StarMath formula language.
-Charts, images, drawing objects, tracked changes, comments, mail merge,
-macros and printing are not implemented yet. Content the model does not cover
+with lists, tables, pictures, diagrams and drawings; multi-sheet workbooks
+with styles, number formats and an incremental formula engine; slides and
+drawing pages of shapes, pictures and diagrams; and the full StarMath
+formula language. Charts, slide transitions and animations, tracked
+changes, comments, mail merge and macros are not implemented yet. Content the model does not cover
 is dropped on save, and the [user guide](docs/user-guide.md#limitations)
 lists what that means.
 

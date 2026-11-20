@@ -14,6 +14,7 @@ import 'paths.dart';
 /// File types the suite can open, by extension.
 const openableExtensions = <String>{
   'odt', 'ott', 'txt', 'ods', 'ots', 'csv', 'tsv', 'odf', 'otf', 'mml',
+  'odp', 'otp', 'odg', 'otg',
   // Microsoft Office, opened read-only (saved as OpenDocument).
   'docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'xltx',
 };
@@ -49,10 +50,27 @@ IconData iconForExtension(String ext) {
     case 'otf':
     case 'mml':
       return Icons.functions;
+    case 'odp':
+    case 'otp':
+      return Icons.slideshow_outlined;
+    case 'odg':
+    case 'otg':
+    case 'svg':
+      return Icons.draw_outlined;
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+    case 'bmp':
+      return Icons.image_outlined;
     default:
       return Icons.insert_drive_file_outlined;
   }
 }
+
+/// Picture files that can be inserted into documents.
+const pictureExtensions = <String>{'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'};
 
 /// Shows the open dialog; returns the chosen path or null.
 Future<String?> showOpenDialog(BuildContext context, {String? startDir}) {
@@ -62,6 +80,21 @@ Future<String?> showOpenDialog(BuildContext context, {String? startDir}) {
       title: t('Open document'),
       startDir: startDir ?? documentsDirectory(),
       extensions: openableExtensions,
+    ),
+  );
+}
+
+/// Picks a picture file to insert; returns its path or null.
+Future<String?> showPictureDialog(BuildContext context) {
+  final home = homeDirectory();
+  final sep = Platform.pathSeparator;
+  final pictures = Directory('$home${sep}Pictures');
+  return showDialog<String>(
+    context: context,
+    builder: (_) => FileDialog(
+      title: t('Insert picture'),
+      startDir: pictures.existsSync() ? pictures.path : documentsDirectory(),
+      extensions: pictureExtensions,
     ),
   );
 }

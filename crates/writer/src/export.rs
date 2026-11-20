@@ -197,7 +197,7 @@ pub fn to_html(doc: &Document) -> String {
     let title = doc.meta.title.clone().unwrap_or_else(|| "Document".into());
     let mut out = format!(
         "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n\
-         <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\">\n\
+         <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:\">\n\
          <title>{}</title>\n<style>body{{font-family:serif;max-width:48em;margin:2em auto;line-height:1.4}}\
          table{{border-collapse:collapse}}td{{border:1px solid #999;padding:4px 8px;vertical-align:top}}\
          .title{{text-align:center}}table.plain td{{border:none}}\
@@ -236,6 +236,27 @@ pub fn to_html(doc: &Document) -> String {
                         }
                         out.push_str("</table>\n");
                     }
+                    Block::Image(p) => {
+                        out.push_str(&format!(
+                            "<p style=\"text-align:{}\"><img src=\"{}\" style=\"width:{}pt;height:{}pt\" alt=\"{}\"></p>\n",
+                            css_align(p.align),
+                            p.image.data_url(),
+                            p.width,
+                            p.height,
+                            escape(&p.description)
+                        ));
+                    }
+                    Block::Diagram(d) => {
+                        let fig = d.figure();
+                        out.push_str(&format!("<figure class=\"diagram\" style=\"text-align:{};margin:1em 0\">\n", css_align(d.align)));
+                        out.push_str(&fig.to_svg_sized(d.width, d.height(), None));
+                        out.push_str("</figure>\n");
+                    }
+                    Block::Drawing(c) => {
+                        out.push_str(&format!("<figure class=\"drawing\" style=\"text-align:{};margin:1em 0\">\n", css_align(c.align)));
+                        out.push_str(&canvas_figure(c).to_svg(None));
+                        out.push_str("</figure>\n");
+                    }
                     _ => out.push_str("<hr style=\"page-break-after:always\">\n"),
                 }
             }
@@ -249,6 +270,19 @@ pub fn to_html(doc: &Document) -> String {
     }
     out.push_str("</body>\n</html>\n");
     out
+}
+
+fn css_align(a: Align) -> &'static str {
+    match a {
+        Align::Left | Align::Justify => "left",
+        Align::Center => "center",
+        Align::Right => "right",
+    }
+}
+
+/// The shapes of a canvas as a vector figure.
+pub fn canvas_figure(c: &Canvas) -> office_draw::Figure {
+    office_draw::model::shapes_to_figure(&c.shapes, c.width, c.height, None)
 }
 
 fn md_escape(s: &str) -> String {
@@ -340,6 +374,15 @@ pub fn to_markdown(doc: &Document) -> String {
                 out.push('\n');
             }
             Block::PageBreak => out.push_str("\n---\n\n"),
+            Block::Image(p) => {
+                let alt = p.description.replace(['[', ']', '\n'], " ");
+                out.push_str(&format!("![{alt}]({})\n\n", p.image.data_url()));
+            }
+            Block::Diagram(d) => out.push_str(&format!("```mermaid\n{}\n```\n\n", d.source.trim_end().replace("```", "'''"))),
+            Block::Drawing(c) => {
+                let svg = canvas_figure(c).to_svg(None);
+                out.push_str(&format!("![Drawing](data:image/svg+xml;base64,{})\n\n", office_draw::image::base64(svg.as_bytes())));
+            }
         }
     }
     while out.ends_with("\n\n") {

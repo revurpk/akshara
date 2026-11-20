@@ -6,6 +6,7 @@
 //! paragraphs with a list kind and level) which keeps editing simple and maps
 //! directly onto the Flutter editor, one editable line per paragraph.
 
+use office_draw::{Image, Shape};
 use office_odf::Rgb;
 use serde::{Serialize, Serializer};
 
@@ -407,6 +408,111 @@ impl Table {
     }
 }
 
+/// Smallest picture, diagram or drawing side in points.
+pub const MIN_FRAME_SIDE: f32 = 4.0;
+
+fn frame_side(v: f32, default: f32) -> f32 {
+    if v.is_finite() { v.clamp(MIN_FRAME_SIDE, MAX_PAGE_SIDE) } else { default }
+}
+
+/// A picture on its own line.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Picture {
+    /// The picture (serialised as its id; fetch the bytes with
+    /// `image.data`).
+    pub image: Image,
+    /// Displayed width in points.
+    pub width: f32,
+    /// Displayed height in points.
+    pub height: f32,
+    /// Horizontal position.
+    pub align: Align,
+    /// Alternative text.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+}
+
+impl Picture {
+    /// A picture at its natural size, at most `max_width` wide.
+    pub fn new(image: Image, max_width: f32) -> Picture {
+        let (width, height) = image.fit_size(max_width, MAX_PAGE_SIDE);
+        Picture { image, width, height, align: Align::Center, description: String::new() }
+    }
+
+    /// Clamps the size into range.
+    pub fn normalize(&mut self) {
+        self.width = frame_side(self.width, 144.0);
+        self.height = frame_side(self.height, 144.0);
+        self.description.truncate(self.description.char_indices().nth(2000).map_or(self.description.len(), |(i, _)| i));
+    }
+}
+
+/// A Mermaid diagram on its own line; its height follows from the drawing.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Diagram {
+    /// Mermaid source.
+    pub source: String,
+    /// Displayed width in points.
+    pub width: f32,
+    /// Horizontal position.
+    pub align: Align,
+}
+
+impl Diagram {
+    /// The rendered figure.
+    pub fn figure(&self) -> office_draw::Figure {
+        office_draw::mermaid::render(&self.source).figure
+    }
+
+    /// Displayed height for the current width.
+    pub fn height(&self) -> f32 {
+        let f = self.figure();
+        self.width * f.height / f.width.max(1.0)
+    }
+
+    /// Clamps values into range.
+    pub fn normalize(&mut self) {
+        self.width = frame_side(self.width, 300.0);
+        if self.source.len() > office_draw::model::MAX_DIAGRAM_SOURCE {
+            let mut cut = office_draw::model::MAX_DIAGRAM_SOURCE;
+            while !self.source.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            self.source.truncate(cut);
+        }
+    }
+}
+
+/// A drawing canvas: shapes in a box of their own.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Canvas {
+    /// Width in points.
+    pub width: f32,
+    /// Height in points.
+    pub height: f32,
+    /// Horizontal position.
+    pub align: Align,
+    /// Shapes, bottom to top, positioned relative to the canvas.
+    pub shapes: Vec<Shape>,
+}
+
+impl Canvas {
+    /// An empty canvas.
+    pub fn new(width: f32, height: f32) -> Canvas {
+        Canvas { width, height, align: Align::Center, shapes: Vec::new() }
+    }
+
+    /// Clamps values into range.
+    pub fn normalize(&mut self) {
+        self.width = frame_side(self.width, 400.0);
+        self.height = frame_side(self.height, 200.0);
+        self.shapes.truncate(office_draw::model::MAX_SHAPES);
+        for s in &mut self.shapes {
+            s.normalize();
+        }
+    }
+}
+
 /// A top-level block.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -417,6 +523,12 @@ pub enum Block {
     Table(Table),
     /// A forced page break.
     PageBreak,
+    /// A picture.
+    Image(Picture),
+    /// A Mermaid diagram.
+    Diagram(Diagram),
+    /// A drawing canvas.
+    Drawing(Canvas),
 }
 
 /// Page setup.

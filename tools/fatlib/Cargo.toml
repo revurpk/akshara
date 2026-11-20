@@ -1,0 +1,10 @@
+[package]
+name = "fatlib"
+description = "Merges per-architecture macOS static libraries into one universal (fat) library, like lipo -create, on any host."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true

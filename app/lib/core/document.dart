@@ -6,10 +6,12 @@ import '../l10n/l10n.dart';
 import 'file_dialog.dart';
 import 'native.dart';
 
-/// The three applications of the suite.
+/// The applications of the suite.
 enum DocKind {
   writer('Writer', 'Text Document', Icons.description_outlined, Color(0xFF2B6CB0)),
   calc('Calc', 'Spreadsheet', Icons.grid_on_outlined, Color(0xFF2F855A)),
+  impress('Impress', 'Presentation', Icons.slideshow_outlined, Color(0xFFC05621)),
+  draw('Draw', 'Drawing', Icons.draw_outlined, Color(0xFF805AD5)),
   math('Math', 'Formula', Icons.functions, Color(0xFFB7410E));
 
   const DocKind(this.appKey, this.labelKey, this.icon, this.color);
@@ -42,6 +44,17 @@ enum DocKind {
             'csv': t('CSV (current sheet)'),
             'tsv': t('Tab separated (current sheet)'),
           },
+        DocKind.impress => {
+            'odp': t('OpenDocument Presentation'),
+            'svg': t('SVG picture (current slide)'),
+            'png': t('PNG picture (current slide)'),
+            'txt': t('Plain text'),
+          },
+        DocKind.draw => {
+            'odg': t('OpenDocument Drawing'),
+            'svg': t('SVG picture (current page)'),
+            'png': t('PNG picture (current page)'),
+          },
         DocKind.math => {'odf': t('OpenDocument Formula'), 'mml': t('MathML')},
       };
 
@@ -59,7 +72,8 @@ class OpenDoc extends ChangeNotifier {
   bool canUndo = false;
   bool canRedo = false;
 
-  /// Sheet shown by Calc (used when saving CSV).
+  /// Sheet shown by Calc (used when saving CSV), or slide / page shown
+  /// by Impress and Draw (used when exporting a picture).
   int currentSheet = 0;
 
   /// Untitled documents get a number for their tab title.
@@ -117,7 +131,7 @@ class OpenDoc extends ChangeNotifier {
   }
 
   Future<void> saveTo(String target) async {
-    await coreAsync({'op': 'save', 'doc': handle, 'path': target, 'sheet': currentSheet});
+    await coreAsync({'op': 'save', 'doc': handle, 'path': target, 'sheet': currentSheet, 'page': currentSheet});
     final ext = extensionOf(target);
     // Native formats, MathML (which embeds the formula source) and Word /
     // Excel keep everything the document holds: the document now lives

@@ -43,6 +43,16 @@ pub const NAMESPACES: &[(&str, &str)] = &[
     ("r", "http://purl.oclc.org/ooxml/officeDocument/relationships"),
     ("pr", "http://schemas.openxmlformats.org/package/2006/relationships"),
     ("cp", "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"),
+    // DrawingML (pictures in Word files, PowerPoint slides).
+    ("a", "http://schemas.openxmlformats.org/drawingml/2006/main"),
+    ("a", "http://purl.oclc.org/ooxml/drawingml/main"),
+    ("wp", "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"),
+    ("wp", "http://purl.oclc.org/ooxml/drawingml/wordprocessingDrawing"),
+    ("pic", "http://schemas.openxmlformats.org/drawingml/2006/picture"),
+    ("pic", "http://purl.oclc.org/ooxml/drawingml/picture"),
+    ("p", "http://schemas.openxmlformats.org/presentationml/2006/main"),
+    ("p", "http://purl.oclc.org/ooxml/presentationml/main"),
+    ("asvg", "http://schemas.microsoft.com/office/drawing/2016/SVG/main"),
 ];
 
 /// Returns the conventional prefix for a namespace URI, if it is known.
@@ -61,6 +71,11 @@ pub const MIME_ODT: &str = "application/vnd.oasis.opendocument.text";
 pub const MIME_ODS: &str = "application/vnd.oasis.opendocument.spreadsheet";
 /// MIME type of formula documents (`.odf`).
 pub const MIME_ODF: &str = "application/vnd.oasis.opendocument.formula";
+
+/// MIME type of presentations (`.odp`).
+pub const MIME_ODP: &str = "application/vnd.oasis.opendocument.presentation";
+/// MIME type of drawings (`.odg`).
+pub const MIME_ODG: &str = "application/vnd.oasis.opendocument.graphics";
 
 /// Value written to `office:version` and the manifest.
 pub const ODF_VERSION: &str = "1.2";

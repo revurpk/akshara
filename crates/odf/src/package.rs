@@ -24,6 +24,9 @@ pub const MANIFEST_PATH: &str = "META-INF/manifest.xml";
 pub struct Package {
     mimetype: String,
     entries: BTreeMap<String, Vec<u8>>,
+    /// Embedded sub-documents (`Object 1/` -> MIME type), declared in the
+    /// manifest when writing.
+    sub_documents: BTreeMap<String, String>,
 }
 
 fn zip_err(e: zip::result::ZipError) -> OdfError {
@@ -51,7 +54,7 @@ fn validate_name(name: &str) -> Result<()> {
 impl Package {
     /// Creates an empty package of the given MIME type.
     pub fn new(mimetype: impl Into<String>) -> Self {
-        Package { mimetype: mimetype.into(), entries: BTreeMap::new() }
+        Package { mimetype: mimetype.into(), entries: BTreeMap::new(), sub_documents: BTreeMap::new() }
     }
 
     /// Reads every entry of a package.
@@ -172,7 +175,7 @@ impl Package {
             return Err(OdfError::invalid("implausible mimetype"));
         }
         entries.remove(MANIFEST_PATH);
-        Ok(Package { mimetype, entries })
+        Ok(Package { mimetype, entries, sub_documents: BTreeMap::new() })
     }
 
     /// The package MIME type (may be empty for damaged packages).
@@ -228,6 +231,16 @@ impl Package {
         Ok(())
     }
 
+    /// Declares the folder `dir` (for example `Object 1`) as an embedded
+    /// document of type `mimetype`; its streams are added with
+    /// [`insert`](Self::insert) as `Object 1/content.xml` etc.
+    pub fn add_sub_document(&mut self, dir: &str, mimetype: &str) -> Result<()> {
+        let dir = dir.trim_end_matches('/');
+        validate_name(dir)?;
+        self.sub_documents.insert(format!("{dir}/"), mimetype.to_owned());
+        Ok(())
+    }
+
     /// Names of the entries, sorted.
     pub fn entry_names(&self) -> impl Iterator<Item = &str> {
         self.entries.keys().map(String::as_str)
@@ -243,15 +256,25 @@ impl Package {
             .attr("manifest:version", ns::ODF_VERSION)
             .attr("manifest:media-type", &self.mimetype)
             .end();
+        for (dir, mime) in &self.sub_documents {
+            w.start("manifest:file-entry")
+                .attr("manifest:full-path", dir)
+                .attr("manifest:version", ns::ODF_VERSION)
+                .attr("manifest:media-type", mime)
+                .end();
+        }
         for name in self.entries.keys() {
-            let media_type = if name.ends_with(".xml") {
-                "text/xml"
-            } else if name.ends_with(".png") {
-                "image/png"
-            } else if name.ends_with(".jpg") || name.ends_with(".jpeg") {
-                "image/jpeg"
-            } else {
-                ""
+            let lower = name.to_ascii_lowercase();
+            let ext = lower.rsplit_once('.').map(|(_, e)| e).unwrap_or("");
+            let media_type = match ext {
+                "xml" => "text/xml",
+                "png" => "image/png",
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                "svg" => "image/svg+xml",
+                "webp" => "image/webp",
+                "bmp" => "image/bmp",
+                _ => "",
             };
             w.start("manifest:file-entry")
                 .attr("manifest:full-path", name)
@@ -313,6 +336,19 @@ mod tests {
         p.insert("content.xml", b"<a/>".to_vec()).expect("insert");
         p.insert("Pictures/x.png", vec![1, 2, 3]).expect("insert");
         p
+    }
+
+    #[test]
+    fn manifest_declares_sub_documents_and_media_types() {
+        let mut p = sample();
+        p.insert("Pictures/d.svg", b"<svg/>".to_vec()).expect("svg");
+        p.add_sub_document("Object 1", ns::MIME_ODG).expect("object");
+        p.insert("Object 1/content.xml", b"<a/>".to_vec()).expect("content");
+        assert!(p.add_sub_document("../x", ns::MIME_ODG).is_err());
+        let manifest = p.manifest_xml();
+        assert!(manifest.contains("manifest:full-path=\"Object 1/\""));
+        assert!(manifest.contains(ns::MIME_ODG));
+        assert!(manifest.contains("image/svg+xml"));
     }
 
     #[test]

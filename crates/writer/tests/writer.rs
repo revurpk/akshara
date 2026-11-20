@@ -359,8 +359,9 @@ fn reads_foreign_odt_constructs() {
     assert_eq!(para(5).kind, ParaKind::Numbered { level: 0 });
     assert_eq!(para(6).kind, ParaKind::Bullet { level: 1 });
     assert!(matches!(b[7], Block::PageBreak));
-    assert_eq!(para(8).text(), "new page", "frame content is skipped");
-    match &b[9] {
+    assert_eq!(para(8).text(), "new page");
+    assert_eq!(para(9).text(), "in frame", "text frames follow their paragraph");
+    match &b[10] {
         Block::Table(t) => {
             assert_eq!(t.rows.len(), 2);
             assert_eq!(t.cols(), 2);
@@ -369,7 +370,7 @@ fn reads_foreign_odt_constructs() {
         }
         other => panic!("{other:?}"),
     }
-    assert_eq!(para(10).kind, ParaKind::Heading { level: 6 });
+    assert_eq!(para(11).kind, ParaKind::Heading { level: 6 });
 }
 
 #[test]

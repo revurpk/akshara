@@ -6,6 +6,12 @@
 #
 # Desktop builds (linux, windows) also happen automatically from CMake during
 # `flutter build`; this script is mainly for macOS, iOS and Android.
+#
+# The Apple libraries are static (`.a`), so building them needs no Apple
+# linker: `macos` and `ios` also work on Linux and Windows (Git Bash) with
+# just rustup. The universal macOS library is merged with `lipo` when it is
+# available and with tools/fatlib otherwise. Building the app bundle and the
+# disk image still needs a Mac (packaging/macos/build-dmg.sh --prebuilt-core).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -25,23 +31,27 @@ case "$target" in
         cargo build "${flags[@]}" -p akshara-ffi
         ;;
     macos)
-        need lipo "run this on macOS with the Xcode command line tools"
+        need rustup "install Rust with rustup (https://rustup.rs) to add the macOS targets"
         rustup target add aarch64-apple-darwin x86_64-apple-darwin
         for t in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build "${flags[@]}" -p akshara-ffi --target "$t"
+            # Only the static library: no Apple linker needed.
+            cargo rustc "${flags[@]}" -p akshara-ffi --target "$t" --crate-type staticlib
         done
         out="target/universal-apple-darwin/$profile"
         mkdir -p "$out"
-        lipo -create -output "$out/libakshara.a" \
-            "target/aarch64-apple-darwin/$profile/libakshara.a" \
-            "target/x86_64-apple-darwin/$profile/libakshara.a"
+        slices=("target/aarch64-apple-darwin/$profile/libakshara.a" "target/x86_64-apple-darwin/$profile/libakshara.a")
+        if command -v lipo >/dev/null 2>&1 && lipo -info "${slices[0]}" >/dev/null 2>&1; then
+            lipo -create -output "$out/libakshara.a" "${slices[@]}"
+        else
+            cargo run --quiet --release -p fatlib -- -o "$out/libakshara.a" "${slices[@]}"
+        fi
         echo "universal static library: $out/libakshara.a"
         ;;
     ios)
-        need xcrun "run this on macOS with Xcode installed"
+        need rustup "install Rust with rustup (https://rustup.rs) to add the iOS targets"
         rustup target add aarch64-apple-ios aarch64-apple-ios-sim
         for t in aarch64-apple-ios aarch64-apple-ios-sim; do
-            cargo build "${flags[@]}" -p akshara-ffi --target "$t"
+            cargo rustc "${flags[@]}" -p akshara-ffi --target "$t" --crate-type staticlib
         done
         ;;
     android)

@@ -2,13 +2,13 @@
 
 ## Getting around
 
-- **Home** lists the three applications, *Open…* and recent documents. Change
+- **Home** lists the five applications (Writer, Calc, Impress, Draw and Math), *Open…* and recent documents. Change
   the interface language with the chips at the top (shown in each language's
   own script) or with the translate button (文A) in the title bar. Your choice
   is remembered.
 - Every open document is a **tab**. A dot (•) marks unsaved changes. Close a
   tab with its × button, the middle mouse button, or Ctrl+W.
-- **Save** (Ctrl+S) writes the native format (`.odt`, `.ods`, `.odf`).
+- **Save** (Ctrl+S) writes the native format (`.odt`, `.ods`, `.odp`, `.odg`, `.odf`).
   **Save as / export** (Ctrl+Shift+S) can also save as a Word document
   (`.docx`) or Excel workbook (`.xlsx`), and export plain text, HTML,
   Markdown, CSV, TSV or MathML. After saving as Word or Excel, Ctrl+S keeps
@@ -157,9 +157,22 @@ Each paragraph is edited directly on the page.
 | PDF | *Page ▾* → *Export as PDF…*, or *Export as PDF* in the print preview |
 | Find & replace | Ctrl+F |
 | Undo / redo | Ctrl+Z / Ctrl+Y (typing in one paragraph is undone as one step) |
+| Picture | the picture button → *Picture…* (PNG, JPEG, GIF, WebP, BMP or SVG); it goes after the current paragraph |
+| Diagram | the picture button → *Diagram (Mermaid)…*: type Mermaid, see the drawing live (see [Diagrams](#diagrams-mermaid)) |
+| Drawing | the picture button → *Drawing*: a canvas for shapes, lines, text boxes, pictures and diagrams, edited like a Draw page |
+| Size, position, alternative text | click a picture, diagram or drawing: drag the corner handle to resize, use the bar above the page to align it or edit it; double-click a diagram to edit its source, a picture for its alternative text; Delete removes it |
 
 The status bar shows word, character and paragraph counts, plus zoom. Links
 can only use `http`, `https` or `mailto`.
+
+**Pictures and diagrams in files.** In `.odt` files, pictures are stored as
+they are, diagrams as SVG pictures whose description holds the Mermaid
+source, and drawings as embedded OpenDocument drawings, so OpenOffice and
+LibreOffice show and edit them. In Word files, diagrams and drawings become
+SVG pictures (with a PNG copy for older Word versions); a diagram keeps its
+source and is editable again when the file is reopened in Akshara, a drawing
+stays a picture. HTML export embeds everything; Markdown export writes
+diagrams as ```` ```mermaid ```` code blocks.
 
 **Printing.** Pages are drawn by Akshara itself, so every script prints
 exactly as on screen. *Print…* in the preview opens your system's print
@@ -240,6 +253,62 @@ TRUNC, UPPER, VALUE, VAR, VARP, VLOOKUP, WEEKDAY, XOR, YEAR.
 `SUMIF`, `COUNTIF`, `AVERAGEIF`, `MATCH` and `VLOOKUP` accept criteria such
 as `">=10"` and the wildcards `*` and `?`. Text comparison ignores case.
 
+## Impress
+
+Presentations are made of slides. The left pane shows all slides: click one
+to edit it, drag it to reorder, right-click (long-press) to duplicate,
+rename, move or delete it.
+
+| Action | How |
+|---|---|
+| New slide | the **+** button: title slide, title and content, two columns, title only, or blank |
+| Type a title or bullet points | double-click a placeholder ("Click to add title"), or select it and press Enter or F2; Escape ends typing |
+| Shapes | pick a tool (rectangle, rounded rectangle, ellipse, triangle, diamond, line, arrow, text box) and drag on the slide, or click for the default size; Shift keeps squares and circles, and snaps lines to 45° |
+| Pictures and diagrams | the picture and diagram buttons |
+| Select | click; Shift+click adds; drag on an empty area selects everything inside; Ctrl+A selects all |
+| Move and resize | drag a shape; drag a handle to resize (pictures keep their proportions at the corners; Shift does it for any shape); arrow keys nudge by 1 pt, Shift+arrows by 10 pt |
+| Format | fill and line colour, line width, dashes, arrowheads, font size, bold, italic, underline, text colour, alignment, bullets |
+| Arrange | *Arrange* menu or right-click: bring to front, forward, backward, to back; rotate by 90° |
+| Copy, cut, paste, duplicate | Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+D (also between slides, presentations, drawings and Writer drawings) |
+| Background | the background button colours the current slide |
+| Speaker notes | the box below the slide |
+| Slide size | 16:9, 4:3, 16:10 or a paper size; contents are scaled with it |
+| Slide show | F5 (from the start), Shift+F5 (from the current slide), or the play button; click, Space, Enter or the arrow keys go forward, Backspace and the arrow keys go back, Escape ends |
+| Print, PDF | Ctrl+P: one slide per page |
+| Export a slide | *Save as* → SVG or PNG picture (the current slide) |
+| Undo / redo | Ctrl+Z / Ctrl+Y |
+
+Presentations are saved as OpenDocument Presentation (`.odp`), which
+OpenOffice and LibreOffice open. When an `.odp` made elsewhere is opened,
+the decorations of its master slides are copied onto each slide.
+
+## Draw
+
+Draw edits pages of vector graphics with the same tools as Impress: shapes,
+lines and arrows, text boxes, pictures and diagrams. Pages are listed on the
+left; *Page setup…* chooses the paper size and orientation. Drawings are
+saved as OpenDocument Graphics (`.odg`), print one page per sheet, and each
+page can be exported as an SVG or PNG picture.
+
+## Diagrams (Mermaid)
+
+Diagrams are written in the [Mermaid](https://mermaid.js.org) language and
+drawn by Akshara itself, offline. The editor shows the source and a live
+preview side by side, lists problems with their line numbers, and offers an
+example of each diagram type to start from.
+
+| Type | Starts with | Supported |
+|---|---|---|
+| Flowchart | `flowchart TD` or `graph LR` (TD, TB, BT, LR, RL) | all node shapes (`[ ]`, `( )`, `([ ])`, `[[ ]]`, `[( )]`, `(( ))`, `((( )))`, `> ]`, `{ }`, `{{ }}`, `[/ /]`, `[\ \]`, `[/ \]`, `[\ /]`), links `-->` `---` `-.->` `==>` `--o` `--x` `<-->` `~~~`, longer links, labels (`-->|text|` and `-- text -->`), chains (`A --> B --> C`), `&`, subgraphs, `style`, `classDef`, `class`, `:::`, `<br>` |
+| Sequence diagram | `sequenceDiagram` | participants and actors, aliases, all arrow types, self messages, activations (`+`/`-`, `activate`), notes, `autonumber`, `loop` `alt` `else` `opt` `par` `and` `critical` `break` `rect`, `title` |
+| Class diagram | `classDiagram` | classes with members, `class X { }`, generics (`List~int~`), stereotypes, all relation types with labels and cardinalities, notes, `direction` |
+| State diagram | `stateDiagram-v2` | `[*]`, transitions with labels, descriptions, `state "…" as X`, composite states, `<<choice>>`, `<<fork>>` / `<<join>>`, notes, `direction` |
+| Pie chart | `pie` | `title`, `showData`, `"Label" : value` |
+
+Indian-language labels work like any other text. Other Mermaid diagram
+types (Gantt, ER, mind maps, journeys…) show a message instead of a drawing,
+and icons (`fa:fa-…`) are left out.
+
 ## Math
 
 Type a formula on the left in the StarMath language (the same language
@@ -275,7 +344,10 @@ Akshara is young. These features of OpenOffice are **not implemented yet**,
 and content using them is simplified or dropped when a document is opened
 and saved again:
 
-- Writer: images and drawings, frames, footnotes and endnotes, comments,
+- Writer: pictures and drawings inside table cells, lists, headers and
+  footers (they are kept only as blocks between paragraphs), text wrapping
+  around pictures, picture cropping, frames (their text is kept as
+  paragraphs), footnotes and endnotes, comments,
   tracked changes, fields other than page number and page count, different
   headers and footers for first, left and right pages, sections and
   columns, custom fonts per run, line spacing, right and first-line
@@ -283,6 +355,13 @@ and saved again:
 - Calc: charts, images, cell comments, merged cells, conditional formatting,
   data validation, named ranges, pivot tables, row heights, custom number
   format codes (the format *category* is kept), and the remaining functions.
+- Impress and Draw: slide transitions and animations, master slides (their
+  shapes are copied onto the slides), rich text with mixed formatting inside
+  one shape (a shape has one text style), gradients and bitmap fills (the
+  first colour is used), connectors that follow shapes, groups (flattened),
+  3D objects, charts and embedded objects, curves (paths are kept as
+  polygons), and PowerPoint files (save them as `.odp` in another program
+  first).
 - Math: MathML-only features without a StarMath equivalent.
 - Transliteration: Hindi-style dropping of the final inherent vowel
   (`kamal` → कमल) and the nukta letters ज़/फ़ (`z`, `f`) are not part of the

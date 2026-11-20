@@ -4,7 +4,8 @@
 //! Writer.
 //!
 //! * [`model`]: paragraphs of attributed runs, lists, tables, page breaks,
-//!   page setup, page header and footer, page number fields;
+//!   pictures, Mermaid diagrams and drawings, page setup, page header and
+//!   footer, page number fields;
 //! * [`Document`]: validated editing operations addressed in UTF-16 offsets,
 //!   with coalescing undo/redo, find and replace;
 //! * [`load_odt`] / [`save_odt`]: OpenDocument Text import and export;
@@ -40,8 +41,8 @@ pub mod pdf;
 
 pub use document::{Area, Document, Match, ParaRef, INDENT_STEP, MAX_BLOCKS, MAX_LABELS, MAX_PARAGRAPH_LEN, MAX_UNDO};
 pub use model::{
-    label_sheet, paper_size, sanitize_link, Align, AttrPatch, Block, Field, LabelSheet, Letterhead, PageSetup, PaperKind,
-    PaperSize, ParaKind, Paragraph, Run, Stats, Table, TextAttrs, LABEL_SHEETS, PAPER_SIZES,
+    label_sheet, paper_size, sanitize_link, Align, AttrPatch, Block, Canvas, Diagram, Field, LabelSheet, Letterhead, PageSetup, PaperKind,
+    PaperSize, ParaKind, Paragraph, Picture, Run, Stats, Table, TextAttrs, LABEL_SHEETS, PAPER_SIZES,
 };
 pub use docx::{load_docx, save_docx};
 pub use odt::{load_odt, save_odt};

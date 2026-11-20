@@ -10,9 +10,16 @@
 //! fields, tracked insertions (deletions are dropped), page size and margin,
 //! the default header and footer, and the title.
 //!
-//! The text of text boxes follows the paragraph they are anchored in.
-//! Images, footnotes, comments and other fields are not modelled; text
-//! inside them is skipped (except field results, which are kept as text).
+//! The text of text boxes follows the paragraph they are anchored in, and
+//! so do pictures (inline or anchored; the SVG version is preferred when
+//! a picture has one). Footnotes, comments and other fields are not
+//! modelled; text inside them is skipped (except field results, which are
+//! kept as text).
+//!
+//! Pictures are saved as Word pictures. Mermaid diagrams and drawings are
+//! saved as SVG pictures with a PNG fallback for older Word versions; a
+//! diagram keeps its source in the picture's description, so it stays an
+//! editable diagram when the file is opened again.
 //!
 //! [`save_docx`] writes everything the model holds, with Word's own styles
 //! (Normal, Heading 1-6, Title, Quote, HTML Preformatted, Hyperlink, Table
@@ -216,6 +223,41 @@ struct Importer<'a> {
     blocks: usize,
     /// Text box nesting (boxes inside boxes are not followed).
     in_text_box: bool,
+    /// The package, for pictures.
+    package: &'a Package,
+}
+
+/// `w:drawing` elements in a paragraph's runs (not inside text boxes or
+/// compatibility fallbacks).
+fn drawings<'a>(e: &'a Element, out: &mut Vec<&'a Element>, depth: usize) {
+    if depth > 24 {
+        return;
+    }
+    for child in e.elements() {
+        if child.name == "w:drawing" {
+            out.push(child);
+        } else if !child.name.ends_with("}Fallback") && child.name != "w:txbxContent" && child.name != "w:p" {
+            drawings(child, out, depth + 1);
+        }
+    }
+}
+
+/// English Metric Units per point.
+const EMU: f32 = 12_700.0;
+
+fn find_descendant<'a>(e: &'a Element, name: &str, depth: usize) -> Option<&'a Element> {
+    if depth > 16 {
+        return None;
+    }
+    for c in e.elements() {
+        if c.name == name {
+            return Some(c);
+        }
+        if let Some(found) = find_descendant(c, name, depth + 1) {
+            return Some(found);
+        }
+    }
+    None
 }
 
 /// State of a complex field (`w:fldChar`) while walking runs.
@@ -297,6 +339,37 @@ fn text_boxes<'a>(e: &'a Element, out: &mut Vec<&'a Element>, depth: usize) {
 const PAGE_MARK: &str = "\u{c}";
 
 impl Importer<'_> {
+    /// A picture (or Mermaid diagram) from a `w:drawing`.
+    fn picture_block(&self, drawing: &Element, align: Align) -> Option<Block> {
+        let frame = drawing.child("wp:inline").or_else(|| drawing.child("wp:anchor"))?;
+        let extent = frame.child("wp:extent");
+        let size = |a: &str| extent.and_then(|e| e.attr(a)).and_then(|v| v.parse::<f32>().ok()).map(|v| v / EMU).filter(|v| v.is_finite() && *v > 0.0);
+        let (width, height) = (size("cx"), size("cy"));
+        let doc_pr = frame.child("wp:docPr");
+        let name = doc_pr.and_then(|d| d.attr("name")).unwrap_or("");
+        let descr = doc_pr.and_then(|d| d.attr("descr")).unwrap_or("");
+        if name.starts_with(office_draw::odg::DIAGRAM_NAME) && !descr.trim().is_empty() {
+            let mut d = Diagram { source: descr.to_owned(), width: width.unwrap_or(300.0), align };
+            d.normalize();
+            return Some(Block::Diagram(d));
+        }
+        let blip = find_descendant(frame, "a:blip", 0)?;
+        let svg = find_descendant(blip, "asvg:svgBlip", 0).and_then(|b| b.attr("r:embed"));
+        let image = [svg, blip.attr("r:embed")].into_iter().flatten().find_map(|id| {
+            let rel = self.rels.get(id).filter(|r| !r.external)?;
+            office_draw::Image::from_bytes(self.package.get(&rel.target)?.to_vec()).ok()
+        })?;
+        let mut p = Picture::new(image, 480.0);
+        if let (Some(w), Some(h)) = (width, height) {
+            p.width = w;
+            p.height = h;
+        }
+        p.align = align;
+        p.description = descr.to_owned();
+        p.normalize();
+        Some(Block::Image(p))
+    }
+
     fn count(&mut self) -> Result<()> {
         self.blocks += 1;
         if self.blocks > self.limits.max_blocks {
@@ -547,6 +620,16 @@ impl Importer<'_> {
             out.push(Block::PageBreak);
             return Ok(());
         }
+        let mut found = Vec::new();
+        for run in p.elements() {
+            if run.name != "w:pPr" {
+                drawings(run, &mut found, 0);
+            }
+        }
+        let pictures: Vec<Block> = found.iter().filter_map(|d| self.picture_block(d, align)).collect();
+        // A paragraph that only holds pictures becomes just the pictures.
+        let only_pictures = !pictures.is_empty() && count == 1 && kind == ParaKind::Normal && pieces[0].iter().all(|r| r.text.trim().is_empty());
+        let pieces = if only_pictures { Vec::new() } else { pieces };
         for (i, piece) in pieces.into_iter().enumerate() {
             if i > 0 {
                 out.push(Block::PageBreak);
@@ -564,6 +647,10 @@ impl Importer<'_> {
             };
             para.normalize();
             out.push(Block::Paragraph(para));
+        }
+        for picture in pictures {
+            self.count()?;
+            out.push(picture);
         }
         // Text boxes anchored here: their paragraphs follow this one.
         if !self.in_text_box {
@@ -751,7 +838,8 @@ fn read_numbering(xml: &Element) -> HashMap<String, Vec<bool>> {
 pub fn load_docx(bytes: &[u8], limits: &Limits) -> Result<Document> {
     ooxml::reject_binary_office(bytes)?;
     let package = Package::read_filtered(bytes, limits, |n| {
-        (n.starts_with("word/") && (n.ends_with(".xml") || n.ends_with(".rels")) && !n.starts_with("word/media/"))
+        (n.starts_with("word/") && (n.ends_with(".xml") || n.ends_with(".rels")))
+            || n.starts_with("word/media/")
             || n == "_rels/.rels"
             || n == "docProps/core.xml"
     })?;
@@ -770,7 +858,7 @@ pub fn load_docx(bytes: &[u8], limits: &Limits) -> Result<Document> {
         Some(p) => package.get_xml(&p, limits)?.map(|x| read_numbering(&x)).unwrap_or_default(),
         None => HashMap::new(),
     };
-    let mut importer = Importer { limits, styles, numbering, rels: rels.clone(), blocks: 0, in_text_box: false };
+    let mut importer = Importer { limits, styles, numbering, rels: rels.clone(), blocks: 0, in_text_box: false, package: &package };
     let mut blocks = Vec::new();
     importer.body(body, &mut blocks, 0)?;
     // Drop a trailing page break left by the last section.
@@ -843,13 +931,86 @@ fn hex(c: Rgb) -> String {
 struct Writer {
     /// External link targets, by relationship id order (rIdL1...).
     links: Vec<String>,
+    /// Pictures: (relationship id, file name in word/media, bytes).
+    media: Vec<(String, String, Vec<u8>)>,
+    /// Pictures written (for unique drawing ids).
+    pictures: usize,
     /// numId of each numbered list (all use abstract numbering 1).
     numbered_lists: usize,
     /// numId for the numbered list being written.
     current_list: Option<usize>,
 }
 
+const PIC_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
+const A_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/main";
+const WP_NS: &str = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
+const SVG_EXT: &str = "{96DAC541-7B7A-43D3-8B79-37D633B846F1}";
+
 impl Writer {
+    fn add_media(&mut self, ext: &str, bytes: Vec<u8>) -> String {
+        let id = format!("rIdM{}", self.media.len() + 1);
+        let name = format!("image{}.{ext}", self.media.len() + 1);
+        self.media.push((id.clone(), name, bytes));
+        id
+    }
+
+    /// An inline picture in its own paragraph; `svg` adds the vector
+    /// version (Word 2016 and later show it, others the raster).
+    #[allow(clippy::too_many_arguments)]
+    fn picture(&mut self, w: &mut XmlWriter, page_break: bool, align: Align, width: f32, height: f32, name: &str, descr: &str, raster: (Vec<u8>, &str), svg: Option<Vec<u8>>) {
+        self.pictures += 1;
+        let n = self.pictures.to_string();
+        let raster_id = self.add_media(raster.1, raster.0);
+        let svg_id = svg.map(|b| self.add_media("svg", b));
+        let (cx, cy) = (((width * EMU) as i64).to_string(), ((height * EMU) as i64).to_string());
+        w.start("w:p");
+        w.start("w:pPr");
+        if page_break {
+            w.start("w:pageBreakBefore").end();
+        }
+        w.start("w:jc").attr("w:val", match align {
+            Align::Left | Align::Justify => "left",
+            Align::Center => "center",
+            Align::Right => "right",
+        }).end();
+        w.end();
+        w.start("w:r").start("w:drawing");
+        w.start("wp:inline").attr("xmlns:wp", WP_NS).attr("distT", "0").attr("distB", "0").attr("distL", "0").attr("distR", "0");
+        w.start("wp:extent").attr("cx", &cx).attr("cy", &cy).end();
+        w.start("wp:docPr").attr("id", &n).attr("name", &format!("{name} {n}"));
+        if !descr.is_empty() {
+            w.attr("descr", descr);
+        }
+        w.end();
+        w.start("wp:cNvGraphicFramePr").start("a:graphicFrameLocks").attr("xmlns:a", A_NS).attr("noChangeAspect", "1").end().end();
+        w.start("a:graphic").attr("xmlns:a", A_NS);
+        w.start("a:graphicData").attr("uri", PIC_NS);
+        w.start("pic:pic").attr("xmlns:pic", PIC_NS);
+        w.start("pic:nvPicPr");
+        w.start("pic:cNvPr").attr("id", &n).attr("name", &format!("{name} {n}")).end();
+        w.start("pic:cNvPicPr").end();
+        w.end();
+        w.start("pic:blipFill");
+        w.start("a:blip").attr("r:embed", &raster_id);
+        if let Some(svg_id) = &svg_id {
+            w.start("a:extLst").start("a:ext").attr("uri", SVG_EXT);
+            w.start("asvg:svgBlip").attr("xmlns:asvg", "http://schemas.microsoft.com/office/drawing/2016/SVG/main").attr("r:embed", svg_id).end();
+            w.end().end();
+        }
+        w.end();
+        w.start("a:stretch").start("a:fillRect").end().end();
+        w.end();
+        w.start("pic:spPr");
+        w.start("a:xfrm").start("a:off").attr("x", "0").attr("y", "0").end().start("a:ext").attr("cx", &cx).attr("cy", &cy).end().end();
+        w.start("a:prstGeom").attr("prst", "rect").start("a:avLst").end().end();
+        w.end();
+        w.end(); // pic:pic
+        w.end().end(); // graphicData, graphic
+        w.end(); // wp:inline
+        w.end().end(); // w:drawing, w:r
+        w.end(); // w:p
+    }
+
     fn link_id(&mut self, target: &str) -> String {
         let i = self.links.iter().position(|l| l == target).unwrap_or_else(|| {
             self.links.push(target.to_owned());
@@ -1236,7 +1397,7 @@ fn core_xml(meta: &Metadata) -> String {
 pub fn save_docx(doc: &Document) -> Result<Vec<u8>> {
     let page = doc.page();
     let text_width = (page.width - 2.0 * page.margin).max(72.0);
-    let mut out = Writer { links: Vec::new(), numbered_lists: 0, current_list: None };
+    let mut out = Writer { links: Vec::new(), media: Vec::new(), pictures: 0, numbered_lists: 0, current_list: None };
 
     let mut w = XmlWriter::new();
     w.start("w:document").attr("xmlns:w", W_NS).attr("xmlns:r", R_NS);
@@ -1263,6 +1424,33 @@ pub fn save_docx(doc: &Document) -> Result<Vec<u8>> {
             Block::PageBreak => {
                 out.current_list = None;
                 break_next = true;
+            }
+            Block::Image(p) => {
+                out.current_list = None;
+                let (raster, svg) = if p.image.format().is_raster() {
+                    ((p.image.bytes().to_vec(), p.image.format().extension()), None)
+                } else {
+                    let png = office_draw::render::svg_to_png(p.image.bytes(), 2.0, 4096, None)?;
+                    ((png, "png"), Some(p.image.bytes().to_vec()))
+                };
+                out.picture(&mut w, break_next, p.align, p.width, p.height, "Picture", &p.description, raster, svg);
+                break_next = false;
+            }
+            Block::Diagram(d) => {
+                out.current_list = None;
+                let fig = d.figure();
+                let png = office_draw::render::figure_to_png(&fig, 2.0, None)?;
+                let svg = fig.to_svg(None).into_bytes();
+                out.picture(&mut w, break_next, d.align, d.width, d.height(), office_draw::odg::DIAGRAM_NAME, &d.source, (png, "png"), Some(svg));
+                break_next = false;
+            }
+            Block::Drawing(c) => {
+                out.current_list = None;
+                let fig = crate::export::canvas_figure(c);
+                let png = office_draw::render::figure_to_png(&fig, 2.0, None)?;
+                let svg = fig.to_svg(None).into_bytes();
+                out.picture(&mut w, break_next, c.align, c.width, c.height, "Drawing", "", (png, "png"), Some(svg));
+                break_next = false;
             }
         }
     }
@@ -1314,6 +1502,20 @@ pub fn save_docx(doc: &Document) -> Result<Vec<u8>> {
         over("/word/footer1.xml", &format!("{WML}.footer+xml"));
     }
     over("/docProps/core.xml", "application/vnd.openxmlformats-package.core-properties+xml");
+    let mut exts: Vec<&str> = out.media.iter().filter_map(|(_, name, _)| name.rsplit_once('.').map(|(_, e)| e)).collect();
+    exts.sort_unstable();
+    exts.dedup();
+    for ext in exts {
+        let mime = match ext {
+            "png" => "image/png",
+            "jpg" => "image/jpeg",
+            "gif" => "image/gif",
+            "bmp" => "image/bmp",
+            "webp" => "image/webp",
+            _ => "image/svg+xml",
+        };
+        types.start("Default").attr("Extension", ext).attr("ContentType", mime).end();
+    }
     package.insert("[Content_Types].xml", types.finish().into_bytes())?;
 
     let mut rels = XmlWriter::new();
@@ -1333,7 +1535,15 @@ pub fn save_docx(doc: &Document) -> Result<Vec<u8>> {
     if footer.is_some() {
         fixed.push(("rIdF1", "footer", "footer1.xml"));
     }
+    let media_rels: Vec<(String, String)> = out.media.iter().map(|(id, name, _)| (id.clone(), format!("media/{name}"))).collect();
+    let mut fixed: Vec<(&str, &str, &str)> = fixed;
+    for (id, target) in &media_rels {
+        fixed.push((id, "image", target));
+    }
     package.insert("word/_rels/document.xml.rels", rels_xml(&fixed, &out.links).into_bytes())?;
+    for (_, name, bytes) in std::mem::take(&mut out.media) {
+        package.insert(format!("word/media/{name}"), bytes)?;
+    }
     package.insert("word/document.xml", document.into_bytes())?;
     package.insert("word/styles.xml", styles_xml().into_bytes())?;
     package.insert("word/numbering.xml", numbering_xml(out.numbered_lists).into_bytes())?;

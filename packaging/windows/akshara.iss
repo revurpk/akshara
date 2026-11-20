@@ -5,7 +5,7 @@
 ; build-installer.sh (Git Bash), or: iscc akshara.iss
 
 #ifndef AppVersion
-  #define AppVersion "0.1.9"
+  #define AppVersion "0.2.0"
 #endif
 #ifndef BuildDir
   #define BuildDir "..\..\app\build\windows\x64\runner\Release"
@@ -39,7 +39,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "associate"; Description: "Open OpenDocument files (.odt, .ods, .odf) with Akshara"; GroupDescription: "File associations:"
+Name: "associate"; Description: "Open OpenDocument files (.odt, .ods, .odp, .odg, .odf) with Akshara"; GroupDescription: "File associations:"
 
 [Files]
 Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
@@ -58,6 +58,8 @@ Root: HKCU; Subkey: "Software\Classes\Akshara.Document\shell\open\command"; Valu
 Root: HKCU; Subkey: "Software\Classes\.odt\OpenWithProgids"; ValueType: string; ValueName: "Akshara.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate
 Root: HKCU; Subkey: "Software\Classes\.ods\OpenWithProgids"; ValueType: string; ValueName: "Akshara.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate
 Root: HKCU; Subkey: "Software\Classes\.odf\OpenWithProgids"; ValueType: string; ValueName: "Akshara.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate
+Root: HKCU; Subkey: "Software\Classes\.odp\OpenWithProgids"; ValueType: string; ValueName: "Akshara.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate
+Root: HKCU; Subkey: "Software\Classes\.odg\OpenWithProgids"; ValueType: string; ValueName: "Akshara.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associate
 
 [Run]
 Filename: "{app}\akshara.exe"; Description: "{cm:LaunchProgram,Akshara Office}"; Flags: nowait postinstall skipifsilent

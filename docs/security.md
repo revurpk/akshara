@@ -15,10 +15,12 @@ defends against and how.
 | Path traversal ("zip slip") | Nothing is ever extracted to disk. Entry names are still validated (`..`, absolute paths, drive letters and backslashes are rejected). |
 | Spreadsheet "cell bombs" (`number-columns-repeated="4000000000"`) | Materialised cells are capped (4 million by default); style-only runs over 64 cells are not materialised; rows and columns beyond the sheet are dropped. |
 | Formula denial of service (`REPT("x";1E9)`, self-doubling `&`) | Text results are capped at 1 MiB; bulk operations at 1 million cells. Circular references are detected (`Err:522`), never looped. |
+| Hostile pictures | The format is sniffed from the content; size (32 MiB), sides (30,000 px) and raster pixel count (64 megapixels, so decoding cannot exhaust memory) are checked before a picture is accepted. SVG is parsed by usvg, which accepts a DTD, so SVG with `<!ENTITY` declarations is refused; SVG rendering never reads files or URLs referenced by the picture. Raster pictures are decoded by Flutter's engine. |
+| Diagram denial of service | Mermaid source is limited to 64 KiB and 5,000 statements; the layout is iterative with budgets on dummy nodes and crossing counting, so pathological graphs finish quickly (tested with property tests). |
 | Macros and scripts | Not implemented, by design. Macros are never loaded or run. |
 | Formulas that reach outside (`WEBSERVICE`, `DDE`, `HYPERLINK`, `INDIRECT` to files) | Not implemented. The evaluator is pure: no I/O, no clock except `NOW()`/`TODAY()`, no network. |
 | Malicious links (`javascript:`, `file:`, custom schemes) | Only `http`, `https` and `mailto` links are kept on import, accepted when editing, or emitted on export. |
-| HTML export injection | All text and attributes are escaped. Exported pages carry `Content-Security-Policy: default-src 'none'` and contain no scripts; links get `rel="noopener noreferrer"`. |
+| HTML export injection | All text and attributes are escaped. Exported pages carry `Content-Security-Policy: default-src 'none'` (pictures only as `data:` URLs) and contain no scripts; links get `rel="noopener noreferrer"`. |
 | CSV injection into other spreadsheets | CSV export prefixes text starting with `= + - @ Tab CR` with `'` by default. |
 | Password-protected (encrypted) documents | Refused with a clear message instead of being half-read. |
 | Corrupted saves | Saves go to a temporary file that is `fsync`ed and renamed over the target, so a crash never leaves a truncated document. |

@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/ffi", "crates/indic", "tools/icongen"]
+members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/draw", "crates/ffi", "crates/indic", "tools/icongen", "tools/fatlib"]
 # Vendored third-party code keeps its own manifest and lints.
 exclude = ["third_party/teltools"]
-default-members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/ffi", "crates/indic"]
+default-members = ["crates/odf", "crates/math", "crates/calc", "crates/writer", "crates/draw", "crates/ffi", "crates/indic"]
 
 [workspace.package]
-version = "0.1.9"
+version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
 rust-version = "1.85"
@@ -14,6 +14,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 office-odf = { path = "crates/odf" }
 office-writer = { path = "crates/writer" }
+office-draw = { path = "crates/draw" }
 office-calc = { path = "crates/calc" }
 office-math = { path = "crates/math" }
 office-indic = { path = "crates/indic" }

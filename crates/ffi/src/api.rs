@@ -7,6 +7,8 @@
 
 use office_calc::{self as calc, Axis, CellAddr, HAlign, NumberFormat, Range, StylePatch, Workbook};
 use office_calc::{PageSetup as CalcPage, PrintArea};
+use office_draw::model::ops as shape_ops;
+use office_draw::{Drawing, DrawingKind, HAlign as ShapeAlign, Image, Layout, Shape, ShapeKind, ShapePatch, VAlign, ZOrder};
 use office_indic::Script;
 use office_math::Formula;
 use office_odf::{read_file_limited, write_file_atomic, Limits, OdfError, Rgb};
@@ -26,6 +28,8 @@ pub enum Doc {
     Calc(Box<Workbook>),
     /// Formula.
     Math(Box<Formula>),
+    /// Presentation or drawing.
+    Draw(Box<Drawing>),
 }
 
 impl Doc {
@@ -34,6 +38,10 @@ impl Doc {
             Doc::Writer(_) => "writer",
             Doc::Calc(_) => "calc",
             Doc::Math(_) => "math",
+            Doc::Draw(d) => match d.kind() {
+                DrawingKind::Presentation => "impress",
+                DrawingKind::Drawing => "draw",
+            },
         }
     }
 }
@@ -44,6 +52,9 @@ pub struct Registry {
     docs: HashMap<u64, Doc>,
     next: u64,
     limits: Limits,
+    /// Shapes copied with `shapes.copy`, pasted with `shapes.paste` into
+    /// any drawing, slide or Writer canvas.
+    clipboard: Vec<Shape>,
 }
 
 /// Most documents one process may keep open.
@@ -338,6 +349,182 @@ fn indic_transform(a: &Args, text: &str) -> R<String> {
     })
 }
 
+// ---- shapes ----------------------------------------------------------------
+
+fn opt_f32(o: &Map<String, Value>, key: &str) -> R<Option<f32>> {
+    match o.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_f64().map(|v| Some(v as f32)).filter(|v| v.is_some_and(f32::is_finite)).ok_or_else(|| bad(format!("'{key}' must be a number"))),
+    }
+}
+
+fn shape_patch(v: &Value) -> R<ShapePatch> {
+    let o = v.as_object().ok_or_else(|| bad("shape patch must be an object"))?;
+    let a = Args(o);
+    let text = |key: &str| -> R<Option<String>> {
+        match o.get(key) {
+            None => Ok(None),
+            Some(Value::String(s)) => Ok(Some(s.clone())),
+            Some(_) => Err(bad(format!("'{key}' must be a string"))),
+        }
+    };
+    Ok(ShapePatch {
+        x: opt_f32(o, "x")?,
+        y: opt_f32(o, "y")?,
+        w: opt_f32(o, "w")?,
+        h: opt_f32(o, "h")?,
+        rotation: opt_f32(o, "rotation")?,
+        fill: o.get("fill").map(color).transpose()?,
+        stroke: o.get("stroke").map(color).transpose()?,
+        stroke_width: opt_f32(o, "stroke_width")?,
+        dash: a.opt_bool("dash"),
+        arrow_start: a.opt_bool("arrow_start"),
+        arrow_end: a.opt_bool("arrow_end"),
+        text: text("text")?,
+        size: opt_f32(o, "size")?,
+        bold: a.opt_bool("bold"),
+        italic: a.opt_bool("italic"),
+        underline: a.opt_bool("underline"),
+        color: match o.get("color") {
+            None => None,
+            Some(v) => Some(color(v)?.unwrap_or(Rgb(0, 0, 0))),
+        },
+        align: match a.opt_str("align") {
+            None => None,
+            Some("left") => Some(ShapeAlign::Left),
+            Some("center") => Some(ShapeAlign::Center),
+            Some("right") => Some(ShapeAlign::Right),
+            Some(other) => return Err(bad(format!("unknown alignment '{other}'"))),
+        },
+        valign: match a.opt_str("valign") {
+            None => None,
+            Some("top") => Some(VAlign::Top),
+            Some("middle") => Some(VAlign::Middle),
+            Some("bottom") => Some(VAlign::Bottom),
+            Some(other) => return Err(bad(format!("unknown vertical alignment '{other}'"))),
+        },
+        bullets: a.opt_bool("bullets"),
+        source: text("source")?,
+    })
+}
+
+/// A new shape from `{kind, x, y, w, h, ...patch}`.
+fn shape_spec(v: &Value) -> R<Shape> {
+    let o = v.as_object().ok_or_else(|| bad("shape must be an object"))?;
+    let a = Args(o);
+    let kind = match a.str("kind")? {
+        "rect" => ShapeKind::Rect,
+        "round_rect" => ShapeKind::RoundRect,
+        "ellipse" => ShapeKind::Ellipse,
+        "triangle" => ShapeKind::Triangle,
+        "diamond" => ShapeKind::Diamond,
+        "line" => ShapeKind::Line,
+        "text_box" => ShapeKind::TextBox,
+        "diagram" => ShapeKind::Diagram { source: a.opt_str("source").unwrap_or("").to_owned() },
+        "polygon" => {
+            let pts = a.get("points")?.as_array().ok_or_else(|| bad("'points' must be a list"))?;
+            if pts.len() > office_draw::model::MAX_POINTS {
+                return Err(OdfError::limit("too many points"));
+            }
+            let points = pts
+                .iter()
+                .map(|p| {
+                    let p = p.as_array().filter(|p| p.len() == 2).ok_or_else(|| bad("points are [x, y] pairs"))?;
+                    let n = |v: &Value| v.as_f64().map(|v| v as f32).ok_or_else(|| bad("points are numbers"));
+                    Ok([n(&p[0])?, n(&p[1])?])
+                })
+                .collect::<R<Vec<_>>>()?;
+            ShapeKind::Polygon { points, closed: a.opt_bool("closed").unwrap_or(true) }
+        }
+        other => return Err(bad(format!("unknown shape kind '{other}'"))),
+    };
+    let mut s = Shape::new(kind, f32_arg(&a, "x")?, f32_arg(&a, "y")?, f32_arg(&a, "w")?, f32_arg(&a, "h")?);
+    shape_patch(v)?.apply(&mut s)?;
+    Ok(s)
+}
+
+/// Shapes as JSON; diagrams carry their rendered figure.
+fn shapes_json(shapes: &[Shape]) -> Value {
+    Value::Array(
+        shapes
+            .iter()
+            .map(|s| {
+                let mut v = to_value(s);
+                if let (Some(fig), Some(o)) = (s.diagram_figure(), v.as_object_mut()) {
+                    o.insert("figure".into(), to_value(&fig));
+                }
+                if let (ShapeKind::Image { image }, Some(o)) = (&s.kind, v.as_object_mut()) {
+                    o.insert("format".into(), json!(image.format()));
+                }
+                v
+            })
+            .collect(),
+    )
+}
+
+fn page_json(d: &Drawing, i: usize) -> Value {
+    let p = &d.pages()[i];
+    json!({
+        "name": p.name, "title": d.page_name(i), "background": p.background.map(Rgb::to_hex),
+        "notes": p.notes, "shapes": shapes_json(&p.shapes),
+    })
+}
+
+/// Writer blocks as JSON, with diagram figures and canvas shapes.
+fn blocks_json(blocks: &[Block]) -> Value {
+    Value::Array(
+        blocks
+            .iter()
+            .map(|b| {
+                let mut v = to_value(b);
+                if let Some(o) = v.as_object_mut() {
+                    match b {
+                        Block::Diagram(d) => {
+                            let r = office_draw::mermaid::render(&d.source);
+                            o.insert("height".into(), json!(d.width * r.figure.height / r.figure.width.max(1.0)));
+                            o.insert("figure".into(), to_value(&r.figure));
+                            o.insert("errors".into(), to_value(&r.errors));
+                        }
+                        Block::Drawing(c) => {
+                            o.insert("shapes".into(), shapes_json(&c.shapes));
+                        }
+                        Block::Image(p) => {
+                            o.insert("format".into(), json!(p.image.format()));
+                        }
+                        _ => {}
+                    }
+                }
+                v
+            })
+            .collect(),
+    )
+}
+
+fn zorder(s: &str) -> R<ZOrder> {
+    Ok(match s {
+        "front" => ZOrder::Front,
+        "back" => ZOrder::Back,
+        "forward" => ZOrder::Forward,
+        "backward" => ZOrder::Backward,
+        other => return Err(bad(format!("unknown order '{other}'"))),
+    })
+}
+
+fn ids_arg(a: &Args, key: &str) -> R<Vec<u32>> {
+    a.get(key)?
+        .as_array()
+        .ok_or_else(|| bad(format!("'{key}' must be a list of shape ids")))?
+        .iter()
+        .map(|v| v.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(|| bad("shape ids are integers")))
+        .collect()
+}
+
+/// Reads and checks a picture file.
+fn read_image(path: &str, limits: &Limits) -> R<Image> {
+    let bytes = read_file_limited(Path::new(path), limits)?;
+    Image::from_bytes(bytes)
+}
+
 /// Longest text accepted by the transliteration operations.
 const MAX_TRANSLIT_LEN: usize = 4 << 20;
 
@@ -380,6 +567,29 @@ impl Registry {
         }
     }
 
+    fn draw(&mut self, a: &Args) -> R<&mut Drawing> {
+        match self.doc(a)? {
+            Doc::Draw(d) => Ok(d),
+            _ => Err(bad("not a presentation or drawing")),
+        }
+    }
+
+    /// Runs a shape edit on a page of a drawing (`page`) or on a Writer
+    /// canvas (`block`), as one undo step of that document.
+    fn edit_shapes<T>(&mut self, a: &Args, coalesce: bool, f: impl FnOnce(&mut Vec<Shape>, &mut u32) -> R<T>) -> R<T> {
+        match self.doc(a)? {
+            Doc::Draw(d) => {
+                let page = a.usize("page")?;
+                d.edit_page(page, f)
+            }
+            Doc::Writer(d) => {
+                let block = a.usize("block")?;
+                d.edit_canvas(block, coalesce, f)
+            }
+            _ => Err(bad("this document has no shapes")),
+        }
+    }
+
     /// Loads a document from bytes; `ext` selects the application.
     fn load_bytes(&mut self, bytes: &[u8], ext: &str) -> R<Value> {
         let limits = self.limits.clone();
@@ -393,6 +603,8 @@ impl Registry {
             "csv" => Doc::Calc(Box::new(calc::load_csv(bytes, None, &limits)?)),
             "tsv" | "tab" => Doc::Calc(Box::new(calc::load_csv(bytes, Some('\t'), &limits)?)),
             "odf" | "otf" | "mml" | "mathml" => Doc::Math(Box::new(Formula::from_bytes(bytes, &limits)?)),
+            "odp" | "otp" | "odg" | "otg" => Doc::Draw(Box::new(office_draw::odg::load(bytes, &limits)?)),
+            "ppt" | "pptx" => return Err(OdfError::unsupported("PowerPoint files (save them as .odp first)")),
             other => return Err(OdfError::unsupported(format!("file type '.{other}'"))),
         };
         self.insert(doc)
@@ -403,6 +615,7 @@ impl Registry {
             Doc::Writer(d) => (d.is_modified(), d.can_undo(), d.can_redo(), d.meta.title.clone()),
             Doc::Calc(d) => (d.is_modified(), d.can_undo(), d.can_redo(), d.meta.title.clone()),
             Doc::Math(d) => (false, false, false, d.meta.title.clone()),
+            Doc::Draw(d) => (d.is_modified(), d.can_undo(), d.can_redo(), d.meta.title.clone()),
         };
         json!({ "kind": doc.kind(), "modified": modified, "can_undo": undo, "can_redo": redo, "title": title })
     }
@@ -424,6 +637,16 @@ impl Registry {
             }
             (Doc::Math(d), "odf") => d.to_odf_bytes()?,
             (Doc::Math(d), "mml") => d.to_mathml().into_bytes(),
+            (Doc::Draw(d), "odp") if d.kind() == DrawingKind::Presentation => office_draw::odg::save(d)?,
+            (Doc::Draw(d), "odg") if d.kind() == DrawingKind::Drawing => office_draw::odg::save(d)?,
+            (Doc::Draw(d), "txt") => d.plain_text().into_bytes(),
+            (Doc::Draw(d), "svg" | "png") => {
+                let page = a.0.get("page").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let p = d.pages().get(page).ok_or_else(|| bad(format!("no page {page}")))?;
+                let (w, h) = d.size();
+                let fig = office_draw::model::shapes_to_figure(&p.shapes, w, h, Some(p.background.unwrap_or(Rgb(255, 255, 255))));
+                if ext == "svg" { fig.to_svg(None).into_bytes() } else { office_draw::render::figure_to_png(&fig, 2.0, None)? }
+            }
             (doc, other) => {
                 return Err(OdfError::unsupported(format!("saving a {} document as '.{other}'", doc.kind())))
             }
@@ -437,6 +660,7 @@ impl Registry {
         match (doc, ext) {
             (Doc::Writer(d), "odt" | "docx") => d.mark_saved(),
             (Doc::Calc(d), "ods" | "xlsx") => d.mark_saved(),
+            (Doc::Draw(d), "odp" | "odg") => d.mark_saved(),
             _ => {}
         }
     }
@@ -456,6 +680,8 @@ impl Registry {
                     "writer" => Doc::Writer(Box::new(Document::new())),
                     "calc" => Doc::Calc(Box::new(Workbook::new())),
                     "math" => Doc::Math(Box::new(Formula::new(a.opt_str("source").unwrap_or("")))),
+                    "impress" => Doc::Draw(Box::new(Drawing::new(DrawingKind::Presentation))),
+                    "draw" => Doc::Draw(Box::new(Drawing::new(DrawingKind::Drawing))),
                     other => return Err(bad(format!("unknown document kind '{other}'"))),
                 };
                 self.insert(doc)
@@ -528,6 +754,8 @@ impl Registry {
                     (Doc::Calc(d), "undo") => d.undo(),
                     (Doc::Calc(d), _) => d.redo(),
                     (Doc::Math(_), _) => false,
+                    (Doc::Draw(d), "undo") => d.undo(),
+                    (Doc::Draw(d), _) => d.redo(),
                 };
                 Ok(json!(done))
             }
@@ -537,6 +765,7 @@ impl Registry {
                     Doc::Writer(d) => d.meta.title = title,
                     Doc::Calc(d) => d.meta.title = title,
                     Doc::Math(d) => d.meta.title = title,
+                    Doc::Draw(d) => d.meta.title = title,
                 }
                 Ok(Value::Null)
             }
@@ -767,7 +996,7 @@ impl Registry {
             "writer.get" => {
                 let d = self.writer(&a)?;
                 Ok(json!({
-                    "blocks": to_value(&d.blocks()),
+                    "blocks": blocks_json(d.blocks()),
                     "header": to_value(&d.header()),
                     "footer": to_value(&d.footer()),
                     "page": to_value(d.page()),
@@ -908,6 +1137,229 @@ impl Registry {
                 Ok(Value::Null)
             }
             "writer.export_html" => Ok(json!(writer::export::to_html(self.writer(&a)?))),
+
+            "writer.insert_image" => {
+                let at = a.usize("at")?;
+                let image = read_image(a.str("path")?, &self.limits)?;
+                let d = self.writer(&a)?;
+                let page = *d.page();
+                let picture = writer::Picture::new(image, (page.width - 2.0 * page.margin).max(72.0));
+                d.insert_block(at, Block::Image(picture))?;
+                Ok(Value::Null)
+            }
+            "writer.insert_diagram" => {
+                let at = a.usize("at")?;
+                let source = a.str("source")?.to_owned();
+                if source.len() > office_draw::model::MAX_DIAGRAM_SOURCE {
+                    return Err(OdfError::limit("diagram is too long"));
+                }
+                let d = self.writer(&a)?;
+                let page = *d.page();
+                let fig = office_draw::mermaid::render(&source).figure;
+                let width = fig.width.min((page.width - 2.0 * page.margin).max(72.0));
+                d.insert_block(at, Block::Diagram(writer::Diagram { source, width, align: Align::Center }))?;
+                Ok(Value::Null)
+            }
+            "writer.insert_drawing" => {
+                let at = a.usize("at")?;
+                let d = self.writer(&a)?;
+                let page = *d.page();
+                let text = (page.width - 2.0 * page.margin).max(72.0);
+                let width = opt_f32(a.0, "width")?.unwrap_or(text);
+                let height = opt_f32(a.0, "height")?.unwrap_or(text * 0.5);
+                d.insert_block(at, Block::Drawing(writer::Canvas::new(width, height)))?;
+                Ok(Value::Null)
+            }
+            "writer.frame" => {
+                let block = a.usize("block")?;
+                let width = opt_f32(a.0, "width")?;
+                let height = opt_f32(a.0, "height")?;
+                let align = a.opt_str("align").map(align_arg).transpose()?;
+                let d = self.writer(&a)?;
+                if let Some(w) = width {
+                    d.set_frame_size(block, w, height)?;
+                }
+                if let Some(al) = align {
+                    d.set_frame_align(block, al)?;
+                }
+                if let Some(desc) = a.opt_str("description") {
+                    d.set_picture_description(block, desc)?;
+                }
+                if let Some(src) = a.opt_str("source") {
+                    d.set_diagram_source(block, src)?;
+                }
+                Ok(Value::Null)
+            }
+
+            // ---- pictures and diagrams ----
+            "set_fonts" => {
+                office_draw::render::add_font_dir(a.str("dir")?);
+                Ok(Value::Null)
+            }
+            "image.data" => {
+                let id = a.str("id")?.to_owned();
+                let raster = a.opt_bool("raster").unwrap_or(true);
+                let image = match self.doc(&a)? {
+                    Doc::Writer(d) => d.image(&id),
+                    Doc::Draw(d) => d.image(&id),
+                    _ => None,
+                }
+                .or_else(|| self.clipboard.iter().find_map(|s| match &s.kind {
+                    ShapeKind::Image { image } if image.id() == id => Some(image.clone()),
+                    _ => None,
+                }))
+                .ok_or_else(|| bad(format!("no picture {id}")))?;
+                let (w, h) = image.pixel_size();
+                let (format, bytes) = if raster && !image.format().is_raster() {
+                    ("png", office_draw::render::svg_to_png(image.bytes(), 2.0, 2048, None)?)
+                } else {
+                    (image.format().extension(), image.bytes().to_vec())
+                };
+                Ok(json!({ "format": format, "width": w, "height": h, "data": office_draw::image::base64(&bytes) }))
+            }
+            "mermaid.render" => {
+                let source = a.str("source")?;
+                if source.len() > office_draw::model::MAX_DIAGRAM_SOURCE {
+                    return Err(OdfError::limit("diagram is too long"));
+                }
+                Ok(to_value(&office_draw::mermaid::render(source)))
+            }
+            "mermaid.svg" => {
+                let source = a.str("source")?;
+                if source.len() > office_draw::model::MAX_DIAGRAM_SOURCE {
+                    return Err(OdfError::limit("diagram is too long"));
+                }
+                Ok(json!(office_draw::mermaid::render(source).figure.to_svg(None)))
+            }
+
+            // ---- impress and draw ----
+            "draw.get" => {
+                let d = self.draw(&a)?;
+                let (w, h) = d.size();
+                let pages: Vec<Value> = (0..d.pages().len()).map(|i| page_json(d, i)).collect();
+                let kind = if d.kind() == DrawingKind::Presentation { "impress" } else { "draw" };
+                Ok(json!({ "kind": kind, "width": w, "height": h, "pages": pages }))
+            }
+            "draw.page" => {
+                let page = a.usize("page")?;
+                let d = self.draw(&a)?;
+                if page >= d.pages().len() {
+                    return Err(bad(format!("no page {page}")));
+                }
+                Ok(page_json(d, page))
+            }
+            "draw.add_page" => {
+                let at = a.usize("at")?;
+                let layout = a.opt_str("layout").unwrap_or("blank");
+                let layout = Layout::parse(layout).ok_or_else(|| bad(format!("unknown layout '{layout}'")))?;
+                self.draw(&a)?.add_page(at, layout)?;
+                Ok(Value::Null)
+            }
+            "draw.duplicate_page" => {
+                let page = a.usize("page")?;
+                self.draw(&a)?.duplicate_page(page)?;
+                Ok(Value::Null)
+            }
+            "draw.remove_page" => {
+                let page = a.usize("page")?;
+                self.draw(&a)?.remove_page(page)?;
+                Ok(Value::Null)
+            }
+            "draw.move_page" => {
+                let (from, to) = (a.usize("from")?, a.usize("to")?);
+                self.draw(&a)?.move_page(from, to)?;
+                Ok(Value::Null)
+            }
+            "draw.page_props" => {
+                let page = a.usize("page")?;
+                let name = a.opt_str("name").map(str::to_owned);
+                let background = a.0.get("background").map(color).transpose()?;
+                let notes = a.opt_str("notes").map(str::to_owned);
+                self.draw(&a)?.set_page_props(page, name.as_deref(), background, notes.as_deref())?;
+                Ok(Value::Null)
+            }
+            "draw.set_size" => {
+                let (w, h) = (f32_arg(&a, "width")?, f32_arg(&a, "height")?);
+                let scale = a.opt_bool("scale").unwrap_or(false);
+                self.draw(&a)?.set_size(w, h, scale)?;
+                Ok(Value::Null)
+            }
+            "draw.break_undo" => {
+                match self.doc(&a)? {
+                    Doc::Draw(d) => d.break_undo_group(),
+                    Doc::Writer(d) => d.break_undo_group(),
+                    _ => {}
+                }
+                Ok(Value::Null)
+            }
+
+            // ---- shapes on a slide / page (`page`) or a Writer canvas (`block`) ----
+            "shapes.add" => {
+                let list = a.get("shapes")?.as_array().ok_or_else(|| bad("'shapes' must be a list"))?;
+                if list.len() > office_draw::model::MAX_SHAPES {
+                    return Err(OdfError::limit("too many shapes"));
+                }
+                let shapes = list.iter().map(shape_spec).collect::<R<Vec<_>>>()?;
+                Ok(json!(self.edit_shapes(&a, false, |v, next| shape_ops::add(v, shapes, next))?))
+            }
+            "shapes.update" => {
+                let list = a.get("updates")?.as_array().ok_or_else(|| bad("'updates' must be a list"))?;
+                let patches = list
+                    .iter()
+                    .map(|u| {
+                        let o = u.as_object().ok_or_else(|| bad("updates are objects"))?;
+                        let id = Args(o).u32("id")?;
+                        Ok((id, shape_patch(Args(o).get("patch")?)?))
+                    })
+                    .collect::<R<Vec<_>>>()?;
+                let key = a.opt_str("key").map(str::to_owned);
+                if let (Some(k), Ok(page)) = (key.as_deref(), a.usize("page")) {
+                    if let Doc::Draw(d) = self.doc(&a)? {
+                        d.update_shapes(page, &patches, Some(k))?;
+                        return Ok(Value::Null);
+                    }
+                }
+                self.edit_shapes(&a, key.is_some(), |v, _| shape_ops::update(v, &patches))?;
+                Ok(Value::Null)
+            }
+            "shapes.remove" => {
+                let ids = ids_arg(&a, "ids")?;
+                self.edit_shapes(&a, false, |v, _| shape_ops::remove(v, &ids))?;
+                Ok(Value::Null)
+            }
+            "shapes.order" => {
+                let (id, to) = (a.u32("id")?, zorder(a.str("to")?)?);
+                self.edit_shapes(&a, false, |v, _| shape_ops::reorder(v, id, to))?;
+                Ok(Value::Null)
+            }
+            "shapes.copy" => {
+                let ids = ids_arg(&a, "ids")?;
+                let copied = self.edit_shapes(&a, false, |v, _| Ok(shape_ops::copy(v, &ids)))?;
+                let n = copied.len();
+                if n > 0 {
+                    self.clipboard = copied;
+                }
+                Ok(json!(n))
+            }
+            "shapes.paste" => {
+                let (dx, dy) = (opt_f32(a.0, "dx")?.unwrap_or(12.0), opt_f32(a.0, "dy")?.unwrap_or(12.0));
+                let mut shapes = self.clipboard.clone();
+                for s in &mut shapes {
+                    s.x += dx;
+                    s.y += dy;
+                }
+                Ok(json!(self.edit_shapes(&a, false, |v, next| shape_ops::add(v, shapes, next))?))
+            }
+            "shapes.insert_image" => {
+                let image = read_image(a.str("path")?, &self.limits)?;
+                let max_w = opt_f32(a.0, "max_w")?.unwrap_or(400.0);
+                let max_h = opt_f32(a.0, "max_h")?.unwrap_or(300.0);
+                let (w, h) = image.fit_size(max_w, max_h);
+                let x = opt_f32(a.0, "x")?.unwrap_or(36.0);
+                let y = opt_f32(a.0, "y")?.unwrap_or(36.0);
+                let shape = Shape::new(ShapeKind::Image { image }, x, y, w, h);
+                Ok(json!(self.edit_shapes(&a, false, |v, next| shape_ops::add(v, vec![shape], next))?.first()))
+            }
 
             // ---- math ----
             "math.get" => {

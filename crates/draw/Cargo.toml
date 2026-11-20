@@ -1,0 +1,23 @@
+[package]
+name = "office-draw"
+description = "Presentation and drawing core: shapes, pages, images, Mermaid diagrams, ODP/ODG I/O and SVG/PNG rendering."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+office-odf.workspace = true
+serde.workspace = true
+# Already in the workspace through icongen: no new downloads. Pure Rust.
+resvg = { version = "0.50", default-features = false, features = ["text"] }
+fontdb = { version = "0.24", default-features = false, features = ["std", "fs"] }
+imagesize = "0.15"
+
+[dev-dependencies]
+resvg = { version = "0.50", default-features = false, features = ["text"] }
+proptest.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

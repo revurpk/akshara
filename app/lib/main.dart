@@ -20,6 +20,8 @@ import 'core/look.dart';
 import 'core/native.dart';
 import 'core/paths.dart';
 import 'core/translit.dart';
+import 'draw/draw_page.dart';
+import 'draw/shape_paint.dart';
 import 'math/math_page.dart';
 import 'writer/page_dialogs.dart';
 import 'writer/writer_page.dart';
@@ -146,6 +148,7 @@ class ShellState extends State<Shell> {
     TranslitSettings.instance.addListener(_onDocChanged);
     _coreProblem = probeCore();
     if (_coreProblem == null) {
+      _registerFonts();
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         for (final f in widget.initialFiles) {
           await openPath(f);
@@ -153,6 +156,25 @@ class ShellState extends State<Shell> {
         final shotDir = Platform.environment['AKSHARA_SCREENSHOT_DIR'];
         if (kDebugMode && shotDir != null) await _captureScreens(shotDir);
       });
+    }
+  }
+
+  /// Lets the core render text in pictures (Word export of diagrams)
+  /// with the bundled fonts, where they exist as files (desktop).
+  void _registerFonts() {
+    final exe = File(Platform.resolvedExecutable).parent.path;
+    final sep = Platform.pathSeparator;
+    final candidates = [
+      '$exe${sep}data${sep}flutter_assets${sep}assets${sep}fonts',
+      '$exe$sep..${sep}Frameworks${sep}App.framework${sep}Resources${sep}flutter_assets${sep}assets${sep}fonts',
+    ];
+    for (final dir in candidates) {
+      if (Directory(dir).existsSync()) {
+        try {
+          core({'op': 'set_fonts', 'dir': dir});
+        } catch (_) {}
+        break;
+      }
     }
   }
 
@@ -338,6 +360,7 @@ class ShellState extends State<Shell> {
     }
     doc.removeListener(_onDocChanged);
     doc.close();
+    CoreImages.instance.forget(doc.handle);
     setState(() {
       _docs.removeAt(index);
       if (_active >= _docs.length) _active = _docs.length - 1;
@@ -432,6 +455,7 @@ class ShellState extends State<Shell> {
                           child: switch (d.kind) {
                             DocKind.writer => WriterPage(doc: d, onNewDocument: (h) => adoptDocument(h, DocKind.writer)),
                             DocKind.calc => CalcPage(doc: d),
+                            DocKind.impress || DocKind.draw => DrawPage(doc: d),
                             DocKind.math => MathPage(doc: d),
                           },
                         ),
@@ -725,7 +749,7 @@ class HomeScreen extends StatelessWidget {
                         ),
                         Text(
                           t(
-                            'Documents, spreadsheets and formulas. Private, offline, open formats.',
+                            'Documents, spreadsheets, presentations, drawings and formulas. Private, offline, open formats.',
                           ),
                           style: theme.textTheme.bodyLarge,
                         ),
@@ -835,7 +859,7 @@ class _CreateCard extends StatelessWidget {
                 ),
                 Text(
                   kind == null
-                      ? 'ODT · ODS · ODF · CSV · TXT · MathML'
+                      ? 'ODF · DOCX · XLSX · CSV'
                       : t('New {kind}', {'kind': kind!.label}),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

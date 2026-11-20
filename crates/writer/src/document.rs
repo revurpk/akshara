@@ -110,6 +110,8 @@ pub struct Match {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EditKind {
     Typing(ParaRef),
+    /// Repeated edits of one canvas (moving, typing in a shape).
+    Canvas(usize),
     Other,
 }
 
@@ -122,6 +124,22 @@ struct Content {
     /// Footer paragraphs; empty when the document has no footer.
     footer: Vec<Paragraph>,
     page: PageSetup,
+    /// Last shape id handed out in drawing canvases.
+    next_shape_id: u32,
+}
+
+/// Gives every shape in every canvas a unique id; returns the last one.
+fn renumber_shapes(blocks: &mut [Block]) -> u32 {
+    let mut next = 0u32;
+    for b in blocks.iter_mut() {
+        if let Block::Drawing(c) = b {
+            for s in &mut c.shapes {
+                next += 1;
+                s.id = next;
+            }
+        }
+    }
+    next
 }
 
 /// A text document with editing history.
@@ -213,14 +231,18 @@ impl Document {
                 }
                 Block::Table(t) => t.normalize(),
                 Block::PageBreak => {}
+                Block::Image(p) => p.normalize(),
+                Block::Diagram(d) => d.normalize(),
+                Block::Drawing(c) => c.normalize(),
             }
         }
+        let next_shape_id = renumber_shapes(&mut blocks);
         if !matches!(blocks.last(), Some(Block::Paragraph(_))) {
             // Always end with a paragraph so the cursor has somewhere to go.
             blocks.push(Block::Paragraph(Paragraph::plain("")));
         }
         Document {
-            c: Content { blocks, ..Default::default() },
+            c: Content { blocks, next_shape_id, ..Default::default() },
             meta: Metadata::default(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -477,6 +499,9 @@ impl Document {
                     }
                 }
                 Block::PageBreak => out.push("\u{c}".into()),
+                Block::Image(p) => out.push(p.description.clone()),
+                Block::Diagram(d) => out.push(d.source.clone()),
+                Block::Drawing(c) => out.extend(c.shapes.iter().filter(|s| !s.text.is_empty()).map(|s| s.text.clone())),
             }
         }
         out.join("\n")
@@ -502,7 +527,7 @@ impl Document {
                         count(p);
                     }
                 }
-                Block::PageBreak => {}
+                Block::PageBreak | Block::Image(_) | Block::Diagram(_) | Block::Drawing(_) => {}
             }
         }
         stats.tables = self.c.blocks.iter().filter(|b| matches!(b, Block::Table(_))).count();
@@ -563,7 +588,7 @@ impl Document {
         if c == self.c {
             return Ok(());
         }
-        let coalesce = matches!(kind, EditKind::Typing(_)) && kind == self.last_edit && !self.undo.is_empty();
+        let coalesce = matches!(kind, EditKind::Typing(_) | EditKind::Canvas(_)) && kind == self.last_edit && !self.undo.is_empty();
         let before = std::mem::replace(&mut self.c, c);
         if !coalesce {
             self.undo.push((before, kind));
@@ -920,9 +945,28 @@ impl Document {
                 p.normalize();
                 Block::Paragraph(p)
             }
+            Block::Image(mut p) => {
+                p.normalize();
+                Block::Image(p)
+            }
+            Block::Diagram(mut d) => {
+                d.normalize();
+                Block::Diagram(d)
+            }
+            Block::Drawing(mut canvas) => {
+                canvas.normalize();
+                Block::Drawing(canvas)
+            }
             other => other,
         };
         self.edit(EditKind::Other, |c| {
+            let mut block = block;
+            if let Block::Drawing(canvas) = &mut block {
+                for s in &mut canvas.shapes {
+                    c.next_shape_id = c.next_shape_id.checked_add(1).ok_or_else(|| OdfError::limit("too many shapes"))?;
+                    s.id = c.next_shape_id;
+                }
+            }
             c.blocks.insert(at, block);
             ensure_final_paragraph(&mut c.blocks);
             Ok(())
@@ -938,6 +982,106 @@ impl Document {
             c.blocks.remove(at);
             ensure_final_paragraph(&mut c.blocks);
             Ok(())
+        })
+    }
+
+    /// Resizes a picture, diagram or drawing. Pictures keep their aspect
+    /// ratio when `height` is `None`; diagrams always do.
+    pub fn set_frame_size(&mut self, at: usize, width: f32, height: Option<f32>) -> Result<()> {
+        if !width.is_finite() || height.is_some_and(|h| !h.is_finite()) {
+            return Err(bad("size must be a number"));
+        }
+        self.edit(EditKind::Other, |c| {
+            match c.blocks.get_mut(at) {
+                Some(Block::Image(p)) => {
+                    let h = height.unwrap_or(p.height * width / p.width.max(1.0));
+                    p.width = width;
+                    p.height = h;
+                    p.normalize();
+                }
+                Some(Block::Diagram(d)) => {
+                    d.width = width;
+                    d.normalize();
+                }
+                Some(Block::Drawing(canvas)) => {
+                    canvas.width = width;
+                    if let Some(h) = height {
+                        canvas.height = h;
+                    }
+                    canvas.normalize();
+                }
+                _ => return Err(bad("block is not a picture, diagram or drawing")),
+            }
+            Ok(())
+        })
+    }
+
+    /// Aligns a picture, diagram or drawing.
+    pub fn set_frame_align(&mut self, at: usize, align: Align) -> Result<()> {
+        self.edit(EditKind::Other, |c| {
+            match c.blocks.get_mut(at) {
+                Some(Block::Image(p)) => p.align = align,
+                Some(Block::Diagram(d)) => d.align = align,
+                Some(Block::Drawing(canvas)) => canvas.align = align,
+                _ => return Err(bad("block is not a picture, diagram or drawing")),
+            }
+            Ok(())
+        })
+    }
+
+    /// Changes a picture's alternative text.
+    pub fn set_picture_description(&mut self, at: usize, description: &str) -> Result<()> {
+        self.edit(EditKind::Other, |c| match c.blocks.get_mut(at) {
+            Some(Block::Image(p)) => {
+                p.description = description.to_owned();
+                p.normalize();
+                Ok(())
+            }
+            _ => Err(bad("block is not a picture")),
+        })
+    }
+
+    /// Replaces a diagram's Mermaid source.
+    pub fn set_diagram_source(&mut self, at: usize, source: &str) -> Result<()> {
+        if source.len() > office_draw::model::MAX_DIAGRAM_SOURCE {
+            return Err(OdfError::limit("diagram is too long"));
+        }
+        self.edit(EditKind::Other, |c| match c.blocks.get_mut(at) {
+            Some(Block::Diagram(d)) => {
+                d.source = source.to_owned();
+                Ok(())
+            }
+            _ => Err(bad("block is not a diagram")),
+        })
+    }
+
+    /// Edits the shapes of a drawing canvas. `f` gets the shapes and the
+    /// id counter; with `coalesce`, repeated edits of the same canvas are
+    /// one undo step.
+    pub fn edit_canvas<T>(&mut self, at: usize, coalesce: bool, f: impl FnOnce(&mut Vec<office_draw::Shape>, &mut u32) -> Result<T>) -> Result<T> {
+        let kind = if coalesce { EditKind::Canvas(at) } else { EditKind::Other };
+        let mut out = None;
+        self.edit(kind, |c| {
+            let mut next = c.next_shape_id;
+            let Some(Block::Drawing(canvas)) = c.blocks.get_mut(at) else {
+                return Err(bad("block is not a drawing"));
+            };
+            out = Some(f(&mut canvas.shapes, &mut next)?);
+            c.next_shape_id = next;
+            Ok(())
+        })?;
+        out.ok_or_else(|| bad("canvas edit failed"))
+    }
+
+    /// The picture with the given id, from pictures and drawings.
+    pub fn image(&self, id: &str) -> Option<office_draw::Image> {
+        self.c.blocks.iter().find_map(|b| match b {
+            Block::Image(p) if p.image.id() == id => Some(p.image.clone()),
+            Block::Drawing(c) => c.shapes.iter().find_map(|s| match &s.kind {
+                office_draw::ShapeKind::Image { image } if image.id() == id => Some(image.clone()),
+                _ => None,
+            }),
+            _ => None,
         })
     }
 
@@ -1003,7 +1147,7 @@ impl Document {
                         }
                     }
                 }
-                Block::PageBreak => {}
+                Block::PageBreak | Block::Image(_) | Block::Diagram(_) | Block::Drawing(_) => {}
             }
         }
     }

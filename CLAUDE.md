@@ -1,8 +1,13 @@
 # Akshara Office: project notes
 
-- Rust workspace (crates/odf, writer, calc, math, ffi; tools/icongen) and a
-  Flutter app in app/. This is not a Python project: run.sh checks for cargo
-  and flutter instead of uv (deliberate exception to the global rule).
+- Rust workspace (crates/odf, writer, calc, draw, math, indic, ffi;
+  tools/icongen, tools/fatlib) and a Flutter app in app/. crates/draw holds
+  Impress/Draw shapes, pictures, the Mermaid engine and ODP/ODG I/O.
+- This is not a Python project: run.sh checks for cargo and flutter instead
+  of uv (deliberate exception to the global rule).
+- The macOS/iOS Rust core cross-compiles on Linux:
+  `scripts/build-native.sh macos` (static libs + tools/fatlib); the app
+  bundle and .dmg need a Mac or the macos-dmg GitHub workflow.
 - License: Apache-2.0 (Cargo `license.workspace`), fonts are SIL OFL.
 - Check everything with:
   `cargo test --workspace && cargo clippy --workspace --all-targets`

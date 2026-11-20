@@ -8,11 +8,13 @@ rust-version.workspace = true
 
 [dependencies]
 office-odf.workspace = true
+office-draw.workspace = true
 serde.workspace = true
 png.workspace = true
 flate2.workspace = true
 
 [dev-dependencies]
+resvg = { version = "0.50", default-features = false, features = ["text"] }
 proptest.workspace = true
 serde_json.workspace = true
 
