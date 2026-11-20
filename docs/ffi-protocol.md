@@ -189,6 +189,47 @@ clockwise from 12 o'clock), `text` (`x y text size bold? italic? anchor
 color`, the text block centred on `y`), `image` (`x y w h id`) and `rotate`
 (`cx cy angle items`). Paints are `fill`, `stroke`, `width`, `dash?`.
 
+## Markdown
+
+| op | arguments | result |
+|---|---|---|
+| `new_markdown` | `text` | `{doc, …}`: a new Writer document |
+| `writer.insert_markdown` | `doc, at, text` | `{blocks}`: blocks inserted before block `at`, as one undo step |
+
+`open` also reads `.md` / `.markdown` files as Writer documents. Supported:
+ATX and setext headings, paragraphs, nested bulleted, numbered and task
+lists, block quotes, fenced code, pipe tables, bold, italic,
+strikethrough, inline code, links and autolinks; ```` ```mermaid ````
+fences become diagrams.
+
+## Voice input
+
+| op | arguments | result |
+|---|---|---|
+| `voice.available` | | `{record, languages}`: whether this build can record; `["en","te","hi","sa"]` |
+| `voice.model_info` | `path` | `{size, multilingual, quantized}` from the file header (fast) |
+| `voice.start` | `model, language?, among?` | `{session}`: starts recording and loads the model in the background. `language` is a Whisper code or `auto` (detect among `among`, default the four offered languages) |
+| `voice.status` | `session` | `{state: "recording", level, seconds}`, `{state: "transcribing"}`, `{state: "done", text, language}` or `{state: "error", error}`; finished sessions are reported once |
+| `voice.stop` | `session` | stops recording and starts recognition |
+| `voice.cancel` | `session` | discards the session |
+| `voice.transcribe_file` | `model, path, language?` | `{session}` for a PCM WAV file (≤ 512 MiB) |
+
+Model files are whisper.cpp `ggml-*.bin` files. Only one dictation records
+at a time; starting another cancels the previous one.
+
+## AI chat (Ollama, loopback only)
+
+| op | arguments | result |
+|---|---|---|
+| `ai.models` | `url?` (default `http://127.0.0.1:11434`) | `{url, models: [{name, size, parameters?}]}` |
+| `ai.chat` | `url?, model, messages: [{role, content}], document?` (default true: adds the Markdown document prompt) | `{job}` |
+| `ai.poll` | `job` | `{text, done, error}`: the reply so far; a finished job is reported once |
+| `ai.cancel` | `job` | stops the request |
+
+Non-loopback URLs fail with an `invalid` error before any connection is
+made; an unreachable server gives an `io` error ("Ollama is not running on
+this computer").
+
 ## Transliteration (teltools)
 
 | op | arguments | result |

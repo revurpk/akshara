@@ -595,6 +595,10 @@ impl Registry {
         let limits = self.limits.clone();
         let doc = match ext {
             "odt" | "ott" | "txt" | "text" => Doc::Writer(Box::new(writer::load(bytes, &limits)?)),
+            "md" | "markdown" => {
+                let text = String::from_utf8_lossy(bytes);
+                Doc::Writer(Box::new(writer::markdown::from_markdown(&text, &limits)?))
+            }
             // Microsoft Office: read only (saving goes to ODF). Old binary
             // .doc/.xls files get a clear "not supported" error.
             "docx" | "docm" | "dotx" | "dotm" | "doc" => Doc::Writer(Box::new(writer::load_docx(bytes, &limits)?)),
@@ -685,6 +689,11 @@ impl Registry {
                     other => return Err(bad(format!("unknown document kind '{other}'"))),
                 };
                 self.insert(doc)
+            }
+            "new_markdown" => {
+                let text = a.str("text")?;
+                let doc = writer::markdown::from_markdown(text, &self.limits)?;
+                self.insert(Doc::Writer(Box::new(doc)))
             }
             "new_envelope" => {
                 let page = page_arg(&a)?;
@@ -1160,6 +1169,19 @@ impl Registry {
                 d.insert_block(at, Block::Diagram(writer::Diagram { source, width, align: Align::Center }))?;
                 Ok(Value::Null)
             }
+            "writer.insert_markdown" => {
+                let at = a.usize("at")?;
+                let text = a.str("text")?;
+                if text.len() as u64 > self.limits.max_entry_size {
+                    return Err(OdfError::limit("text is too long"));
+                }
+                let d = self.writer(&a)?;
+                let page = *d.page();
+                let blocks = writer::markdown::markdown_blocks(text, (page.width - 2.0 * page.margin).max(72.0));
+                let n = blocks.len();
+                d.insert_blocks(at, blocks)?;
+                Ok(json!({ "blocks": n }))
+            }
             "writer.insert_drawing" => {
                 let at = a.usize("at")?;
                 let d = self.writer(&a)?;
@@ -1386,7 +1408,10 @@ impl Registry {
                 .map(|(name, ch)| json!({ "name": name, "char": ch }))
                 .collect::<Vec<_>>())),
 
-            other => Err(bad(format!("unknown operation '{other}'"))),
+            other => match crate::assist::dispatch(other, obj) {
+                Some(result) => result,
+                None => Err(bad(format!("unknown operation '{other}'"))),
+            },
         }
     }
 }

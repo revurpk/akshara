@@ -9,7 +9,7 @@ LibreOffice. It has five applications:
 
 | App | Does | Native format | Also opens / saves |
 |---|---|---|---|
-| **Writer** · लेखक | Word processing with pictures, Mermaid diagrams and drawings | `.odt` | Word `.docx`, `.txt` · exports `.html`, `.md`, `.pdf`; prints |
+| **Writer** · लेखक | Word processing with pictures, Mermaid diagrams and drawings | `.odt` | Word `.docx`, `.txt`, Markdown `.md` · exports `.html`, `.md`, `.pdf`; prints |
 | **Calc** · गणक | Spreadsheets, 131 functions | `.ods` | Excel `.xlsx`, `.csv`, `.tsv` |
 | **Impress** · प्रस्तुति | Presentations: slides, layouts, speaker notes, slide show | `.odp` | exports `.svg`, `.png`, `.pdf`; prints |
 | **Draw** · चित्रकार | Vector drawings and diagrams | `.odg` | exports `.svg`, `.png`, `.pdf`; prints |
@@ -17,7 +17,8 @@ LibreOffice. It has five applications:
 
 The core is written in **Rust** and the user interface in **Flutter**. It
 builds for **Windows, Linux, macOS, Android and iOS**, and needs **no network
-access and no administrator rights**.
+access and no administrator rights**. (The optional AI chat talks only to
+Ollama on the same computer.)
 
 <p align="center">
 <img src="docs/images/home-hindi.png" width="49%" alt="Home screen in Hindi">
@@ -49,17 +50,27 @@ access and no administrator rights**.
   Impress or Draw and see it drawn as you type. Diagrams are laid out by
   Akshara's own Rust engine (no JavaScript, no network) and saved as SVG
   pictures that keep their source, so they stay editable.
+- **Voice input, offline:** dictate in English, Telugu, Hindi or Sanskrit
+  (or let Akshara detect which). Speech is recognised on your computer by
+  Akshara's own Rust implementation of OpenAI's Whisper, using a model file
+  you download once; nothing is sent anywhere. Windows, macOS and Linux.
+- **AI chat with local models:** ask a model running in
+  [Ollama](https://ollama.com) on your computer for a letter, report or plan,
+  then open the answer as a formatted Writer document (headings, lists,
+  tables and Mermaid diagrams) or insert it into the open one. Off by
+  default; Akshara only ever connects to `127.0.0.1`.
 - **Made for Indian users:** lakh/crore digit grouping (`12,34,567.00`),
   rupee amounts (`₹2,50,000` is recognised as you type), DD-MM-YYYY dates, and
   Indic text inside formulas.
 - **Secure by design:** hardened parsers for untrusted files, no macros, no
-  scripts, no external links followed, no telemetry, no network code at all.
+  scripts, no external links followed, no telemetry, and no network access
+  beyond the opt-in, loopback-only Ollama connection.
   See [docs/security.md](docs/security.md).
 - **Open formats:** ODF 1.2 output that OpenOffice and LibreOffice can open.
   The output is deterministic, and saves are atomic.
-- **Tested:** 267 Rust tests (unit, behavioural and property-based fuzzing of
+- **Tested:** 297 Rust tests (unit, behavioural and property-based fuzzing of
   every parser) plus 16 for the vendored teltools (byte-identical with
-  upstream's own test vectors), and 47 Flutter tests that drive the real Rust
+  upstream's own test vectors), and 51 Flutter tests that drive the real Rust
   library.
 
 ## Quick start (desktop)

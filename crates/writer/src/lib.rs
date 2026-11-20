@@ -11,6 +11,7 @@
 //! * [`load_odt`] / [`save_odt`]: OpenDocument Text import and export;
 //! * [`load_docx`] / [`save_docx`]: Microsoft Word (`.docx`) import and export;
 //! * [`export`]: plain text import, and text, HTML and Markdown export;
+//! * [`markdown`]: Markdown import (```` ```mermaid ```` fences become diagrams);
 //! * [`pdf`]: PDF output from page images, for printing;
 //! * builders for envelopes, index cards, label sheets and letterheads
 //!   ([`Document::envelope`], [`Document::index_cards`], [`Document::labels`],
@@ -35,6 +36,7 @@
 mod docx;
 mod document;
 pub mod export;
+pub mod markdown;
 pub mod model;
 mod odt;
 pub mod pdf;

@@ -12,6 +12,7 @@ C ABI carrying JSON.
 │ draw/      Impress & Draw: shape editor, slide pane, slide show,   │
 │            shape/figure painter, Mermaid editor (also in Writer)   │
 │ math/      StarMath editor + widget-based formula renderer         │
+│ assist/    voice input button, AI chat panel, their settings       │
 │ core/      native.dart (dart:ffi), file dialog, paths, fonts, look │
 │ l10n/      9 UI languages                                          │
 └───────────────┬────────────────────────────────────────────────────┘
@@ -24,6 +25,8 @@ C ABI carrying JSON.
 │         SVG and PNG (resvg)                                        │
 │ math    StarMath lexer/parser, AST, MathML in/out, .odf            │
 │ indic   transliteration (7 scripts) on vendored teltools           │
+│ voice   offline Whisper speech-to-text (candle), microphone (cpal) │
+│ ai      Ollama chat client, loopback only                          │
 │ odf     hardened ZIP package + strict XML parser/writer, limits    │
 └────────────────────────────────────────────────────────────────────┘
 ```
@@ -151,12 +154,36 @@ C ABI carrying JSON.
   keystroke, so multi-letter keys (`kh`, `R^i`) resolve correctly. The same
   formatter works with hardware and soft keyboards and in every editor.
 
+### `office-voice`
+- Reads whisper.cpp model files (`ggml-*.bin`: header, mel filters,
+  vocabulary and weights in one file, f16/f32 or quantized) with a
+  bounds-checked reader, and runs the Whisper encoder and decoder on
+  [candle](https://github.com/huggingface/candle)'s CPU tensors. Quantized
+  matrices stay quantized.
+- Log-mel spectrogram, language detection restricted to the offered
+  languages (English, Telugu, Hindi, Sanskrit), greedy decoding with a
+  repetition guard, silence skipping, 30-second windows.
+- `Recorder` captures the default microphone with cpal on its own thread and
+  resamples to 16 kHz mono. Android and iOS get a stub (no permission flow
+  yet).
+
+### `office-ai`
+- A minimal HTTP/1.1 client (`std::net::TcpStream`, chunked decoding) for
+  Ollama's `/api/tags` and streamed `/api/chat`. `Endpoint::parse` accepts
+  only loopback addresses. A system prompt asks for documents in Markdown,
+  with diagrams as ```` ```mermaid ```` blocks, which
+  `office_writer::markdown` turns into Writer blocks.
+
 ### `akshara-ffi`
 - `akshara_alloc`, `akshara_free`, `akshara_call`: the only `unsafe` code in
   the project, about 20 lines with documented safety contracts.
 - `api::Registry` holds the open documents by handle and dispatches about 60
   operations (see [ffi-protocol.md](ffi-protocol.md)). Panics are caught and
   returned as errors, so they never unwind into Dart.
+- `assist` runs voice sessions and chat requests on background threads; the
+  UI starts them, polls (`voice.status`, `ai.poll`) and stops or cancels
+  them, so no call blocks the UI. The Whisper model is loaded once per path,
+  while the user is still speaking.
 
 ## The Flutter app
 

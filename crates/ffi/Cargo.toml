@@ -18,6 +18,8 @@ office-draw.workspace = true
 office-calc.workspace = true
 office-math.workspace = true
 office-indic.workspace = true
+office-voice.workspace = true
+office-ai.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 

@@ -19,6 +19,7 @@
 //! is [`api::Registry::dispatch`].
 
 pub mod api;
+pub mod assist;
 
 pub use api::handle;
 

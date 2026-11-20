@@ -14,7 +14,7 @@ import 'paths.dart';
 /// File types the suite can open, by extension.
 const openableExtensions = <String>{
   'odt', 'ott', 'txt', 'ods', 'ots', 'csv', 'tsv', 'odf', 'otf', 'mml',
-  'odp', 'otp', 'odg', 'otg',
+  'odp', 'otp', 'odg', 'otg', 'md', 'markdown',
   // Microsoft Office, opened read-only (saved as OpenDocument).
   'docx', 'docm', 'dotx', 'xlsx', 'xlsm', 'xltx',
 };

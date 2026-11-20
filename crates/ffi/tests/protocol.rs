@@ -476,3 +476,109 @@ fn mermaid_preview_is_stateless_and_total() {
     let huge = "graph TD\n".to_owned() + &"A-->B\n".repeat(20_000);
     assert_eq!(err_kind(json!({"op": "mermaid.render", "source": huge})), "limit");
 }
+
+#[test]
+fn markdown_documents() {
+    let md = "# Plan\n\nIntro with **bold**.\n\n- one\n- two\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```mermaid\ngraph LR; A-->B\n```\n";
+    let doc = ok(json!({"op": "new_markdown", "text": md}))["doc"].clone();
+    let blocks = ok(json!({"op": "writer.get", "doc": doc}))["blocks"].clone();
+    let kinds: Vec<String> = blocks.as_array().expect("blocks").iter().map(|b| b["type"].as_str().unwrap_or("").to_string()).collect();
+    assert!(kinds.contains(&"table".to_string()) && kinds.contains(&"diagram".to_string()), "{blocks}");
+    assert_eq!(blocks[0]["kind"], json!("heading"));
+
+    // Inserting into an existing document is one undo step.
+    let n = ok(json!({"op": "writer.insert_markdown", "doc": doc, "at": 1, "text": "## Added\n\ntext"}))["blocks"].clone();
+    assert_eq!(n, json!(2));
+    let blocks = ok(json!({"op": "writer.get", "doc": doc}))["blocks"].clone();
+    assert_eq!(blocks[1]["runs"][0]["text"], json!("Added"));
+    ok(json!({"op": "undo", "doc": doc}));
+    let after = ok(json!({"op": "writer.get", "doc": doc}))["blocks"].clone();
+    assert_eq!(after.as_array().map(Vec::len), Some(blocks.as_array().map_or(0, Vec::len) - 2));
+
+    // .md files open as Writer documents.
+    let path = temp("notes.md");
+    std::fs::write(&path, "# Notes\n\n1. first\n").expect("write");
+    let opened = ok(json!({"op": "open", "path": path}));
+    assert_eq!(opened["kind"], json!("writer"));
+}
+
+#[test]
+fn ai_chat_with_a_local_server() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    // Refuses anything but loopback, before connecting.
+    assert_eq!(err_kind(json!({"op": "ai.models", "url": "http://10.0.0.1:11434"})), "invalid");
+    assert_eq!(err_kind(json!({"op": "ai.chat", "url": "https://localhost", "model": "m", "messages": []})), "invalid");
+
+    let l = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let url = format!("http://127.0.0.1:{}", l.local_addr().expect("addr").port());
+    std::thread::spawn(move || {
+        let (s, _) = l.accept().expect("accept");
+        let mut r = BufReader::new(s.try_clone().expect("clone"));
+        let mut len = 0;
+        loop {
+            let mut h = String::new();
+            r.read_line(&mut h).expect("header");
+            if h.trim().is_empty() {
+                break;
+            }
+            if let Some(v) = h.to_ascii_lowercase().strip_prefix("content-length:") {
+                len = v.trim().parse().expect("len");
+            }
+        }
+        let mut body = vec![0; len];
+        r.read_exact(&mut body).expect("body");
+        let body = String::from_utf8_lossy(&body);
+        assert!(body.contains("Markdown"), "the document prompt is sent: {body}");
+        let reply = "{\"message\":{\"content\":\"# Letter\\n\\nDear\"}}\n{\"message\":{\"content\":\" Sir\"},\"done\":true}\n";
+        let out = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{reply}", reply.len());
+        (&s).write_all(out.as_bytes()).expect("write");
+    });
+    let job = ok(json!({"op": "ai.chat", "url": url, "model": "m", "messages": [{"role": "user", "content": "write a letter"}]}))["job"].clone();
+    let mut last = Value::Null;
+    for _ in 0..500 {
+        last = ok(json!({"op": "ai.poll", "job": job}));
+        if last["done"] == json!(true) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(last["done"], json!(true), "{last}");
+    assert_eq!(last["error"], Value::Null);
+    assert_eq!(last["text"], json!("# Letter\n\nDear Sir"));
+    // A finished job is forgotten after it is reported.
+    assert_eq!(err_kind(json!({"op": "ai.poll", "job": job})), "invalid");
+}
+
+#[test]
+fn voice_input_reports_problems_clearly() {
+    let info = ok(json!({"op": "voice.available"}));
+    assert_eq!(info["languages"], json!(["en", "te", "hi", "sa"]));
+    let junk = temp("not-a-model.bin");
+    std::fs::write(&junk, b"definitely not whisper").expect("write");
+    assert_eq!(err_kind(json!({"op": "voice.model_info", "path": junk})), "invalid");
+    assert_eq!(err_kind(json!({"op": "voice.start", "model": junk})), "invalid");
+    assert_eq!(err_kind(json!({"op": "voice.status", "session": 999_999})), "invalid");
+}
+
+/// Transcribes a WAV file with a real model when one is provided:
+/// `AKSHARA_WHISPER_MODEL=ggml-tiny.bin AKSHARA_WHISPER_WAV=jfk.wav cargo test`.
+#[test]
+fn voice_transcribes_a_file_with_a_real_model() {
+    let (Ok(model), Ok(wav)) = (std::env::var("AKSHARA_WHISPER_MODEL"), std::env::var("AKSHARA_WHISPER_WAV")) else {
+        eprintln!("skipped: set AKSHARA_WHISPER_MODEL and AKSHARA_WHISPER_WAV");
+        return;
+    };
+    let info = ok(json!({"op": "voice.model_info", "path": model}));
+    assert_eq!(info["multilingual"], json!(true));
+    let session = ok(json!({"op": "voice.transcribe_file", "model": model, "path": wav, "language": "auto"}))["session"].clone();
+    let mut status = Value::Null;
+    for _ in 0..1200 {
+        status = ok(json!({"op": "voice.status", "session": session}));
+        if status["state"] != json!("transcribing") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    assert_eq!(status["state"], json!("done"), "{status}");
+    assert!(status["text"].as_str().unwrap_or("").to_lowercase().contains("ask not"), "{status}");
+}

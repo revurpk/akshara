@@ -142,6 +142,18 @@ class Settings {
     _save();
   }
 
+  /// A raw setting, for feature-specific settings classes.
+  Object? value(String key) => _data[key];
+
+  void setValue(String key, Object? value) {
+    if (value == null) {
+      _data.remove(key);
+    } else {
+      _data[key] = value;
+    }
+    _save();
+  }
+
   void _save() {
     try {
       final tmp = File('${_file.path}.tmp');

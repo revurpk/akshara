@@ -932,10 +932,37 @@ impl Document {
 
     /// Inserts a block before index `at` (`at == len` appends).
     pub fn insert_block(&mut self, at: usize, block: Block) -> Result<()> {
+        self.insert_blocks(at, vec![block])
+    }
+
+    /// Inserts several blocks before block `at` as one undo step.
+    pub fn insert_blocks(&mut self, at: usize, blocks: Vec<Block>) -> Result<()> {
         if at > self.c.blocks.len() {
             return Err(bad("block index out of range"));
         }
-        let block = match block {
+        if self.c.blocks.len() + blocks.len() > MAX_BLOCKS {
+            return Err(OdfError::limit("the document has too many paragraphs"));
+        }
+        let blocks: Vec<Block> = blocks.into_iter().map(normalize_block).collect();
+        self.edit(EditKind::Other, |c| {
+            for (i, mut block) in blocks.into_iter().enumerate() {
+                if let Block::Drawing(canvas) = &mut block {
+                    for s in &mut canvas.shapes {
+                        c.next_shape_id = c.next_shape_id.checked_add(1).ok_or_else(|| OdfError::limit("too many shapes"))?;
+                        s.id = c.next_shape_id;
+                    }
+                }
+                c.blocks.insert(at + i, block);
+            }
+            ensure_final_paragraph(&mut c.blocks);
+            Ok(())
+        })
+    }
+}
+
+fn normalize_block(block: Block) -> Block {
+    {
+        match block {
             Block::Table(mut t) => {
                 t.normalize();
                 Block::Table(t)
@@ -958,20 +985,11 @@ impl Document {
                 Block::Drawing(canvas)
             }
             other => other,
-        };
-        self.edit(EditKind::Other, |c| {
-            let mut block = block;
-            if let Block::Drawing(canvas) = &mut block {
-                for s in &mut canvas.shapes {
-                    c.next_shape_id = c.next_shape_id.checked_add(1).ok_or_else(|| OdfError::limit("too many shapes"))?;
-                    s.id = c.next_shape_id;
-                }
-            }
-            c.blocks.insert(at, block);
-            ensure_final_paragraph(&mut c.blocks);
-            Ok(())
-        })
+        }
     }
+}
+
+impl Document {
 
     /// Removes a block. The document always keeps a final paragraph.
     pub fn remove_block(&mut self, at: usize) -> Result<()> {

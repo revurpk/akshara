@@ -162,7 +162,8 @@ Each paragraph is edited directly on the page.
 | Drawing | the picture button → *Drawing*: a canvas for shapes, lines, text boxes, pictures and diagrams, edited like a Draw page |
 | Size, position, alternative text | click a picture, diagram or drawing: drag the corner handle to resize, use the bar above the page to align it or edit it; double-click a diagram to edit its source, a picture for its alternative text; Delete removes it |
 
-The status bar shows word, character and paragraph counts, plus zoom. Links
+The status bar shows word, character and paragraph counts, voice input,
+the AI chat button and zoom. Links
 can only use `http`, `https` or `mailto`.
 
 **Pictures and diagrams in files.** In `.odt` files, pictures are stored as
@@ -309,6 +310,59 @@ Indian-language labels work like any other text. Other Mermaid diagram
 types (Gantt, ER, mind maps, journeys…) show a message instead of a drawing,
 and icons (`fa:fa-…`) are left out.
 
+## Voice input
+
+Click the microphone in Writer's status bar, at the bottom right (or in
+the AI chat box), speak, and click it again: the recognised text is typed at the cursor.
+The ring around the microphone shows the input level; click the spinner to
+cancel while the speech is being recognised.
+
+- **Languages:** English, Telugu, Hindi and Sanskrit. The small label next
+  to the microphone (EN, తె, हि, सं or A) picks the language; *A* detects
+  which of the four you are speaking. Choosing the language yourself is more
+  reliable for short phrases.
+- **Speech model:** recognition happens on your computer, and nothing is
+  sent anywhere. The first time, Akshara asks for a Whisper model file in
+  the whisper.cpp format, which you download once from
+  [huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp):
+
+  | File | Size | Notes |
+  |---|---|---|
+  | `ggml-base.bin` / `ggml-base-q5_1.bin` | 148 / 60 MB | fast; good English and Hindi |
+  | `ggml-small-q5_1.bin` | 190 MB | recommended for Telugu and Hindi |
+  | `ggml-medium-q5_0.bin` | 540 MB | most accurate; slower |
+
+  Models with `.en` in the name understand only English. Sanskrit is
+  recognised less accurately than the other three by every Whisper model.
+- **Settings:** *Voice and AI settings…* (in the language menu next to the
+  microphone, or the chat panel's ⚙ button) shows the model and its
+  language, and lets you choose another file.
+- Voice input works on Windows, macOS and Linux. On macOS the system asks
+  for permission to use the microphone the first time.
+
+## AI chat
+
+The AI chat drafts documents with an AI model that runs **on your own
+computer** in [Ollama](https://ollama.com). Akshara only ever connects to
+Ollama on the same computer (`127.0.0.1`), never to the internet, and the
+chat is off until you turn it on.
+
+1. Install Ollama and download a model, for example `ollama pull llama3.2`
+   (3 GB) or `ollama pull qwen2.5:7b` (5 GB, better with Indian languages).
+2. Open the chat with the ✨ button (in the title bar, or in Writer's
+   status bar to keep it beside your document), choose *Set up AI chat…*, turn
+   on *Use Ollama on this computer* and pick the model.
+3. Ask for what you need: "Write a letter to the bank asking to update my
+   address", "తెలుగులో పాఠశాల వార్షికోత్సవ ఆహ్వాన పత్రం రాయి", "A project plan
+   with a flowchart". Press Enter to send and Shift+Enter for a new line;
+   the microphone dictates into the message box.
+4. Under each answer, **New document** opens it as a formatted Writer
+   document (headings, lists, tables, bold and italic, Mermaid diagrams),
+   and **Insert into document** adds it after the current paragraph of the
+   open document (one undo step). **Copy** copies the text.
+
+The model's answers can be wrong; read them before you use them.
+
 ## Math
 
 Type a formula on the left in the StarMath language (the same language
@@ -370,6 +424,11 @@ and saved again:
   kept), repeated title columns, manual page breaks, a different page
   setup per sheet, and custom header and footer text; cell borders are
   drawn as light grid lines.
+- Voice input: Android and iOS; punctuation commands ("comma", "new
+  line"); continuous dictation (each click of the microphone is one
+  recording, up to 10 minutes).
+- AI chat: Ollama only (no other local servers yet); answers are plain
+  Markdown, so colours, pictures and page layout are not set by the model.
 - All: password-protected documents (they are refused), and old binary
   `.doc` / `.xls` files. Saving as Word or Excel writes what Akshara
   models; images, charts and comments of an imported Office file are not

@@ -13,6 +13,8 @@ import 'package:material_ui/material_ui.dart';
 
 import 'l10n/l10n.dart';
 
+import 'assist/assist_settings.dart';
+import 'assist/chat_panel.dart';
 import 'calc/calc_page.dart';
 import 'core/document.dart';
 import 'core/file_dialog.dart';
@@ -57,6 +59,7 @@ class _AksharaAppState extends State<AksharaApp> {
     );
     _loadTranslit();
     LookSettings.instance.load(_settings);
+    AssistSettings.instance.load(_settings);
     LookSettings.instance.addListener(_onLook);
   }
 
@@ -136,6 +139,7 @@ class Shell extends StatefulWidget {
 }
 
 class ShellState extends State<Shell> {
+  final _scaffold = GlobalKey<ScaffoldState>();
   final List<OpenDoc> _docs = [];
   int _active = -1; // -1 = home screen
   int _untitled = 0;
@@ -436,6 +440,19 @@ class ShellState extends State<Shell> {
       child: RepaintBoundary(
         key: _screenKey,
         child: Scaffold(
+          key: _scaffold,
+          endDrawer: Drawer(
+            width: 440,
+            child: SafeArea(
+              child: ChatPanel(
+                onNewDocument: (h) {
+                  _scaffold.currentState?.closeEndDrawer();
+                  adoptDocument(h, DocKind.writer);
+                },
+                onClose: () => _scaffold.currentState?.closeEndDrawer(),
+              ),
+            ),
+          ),
           body: SafeArea(
             child: Column(
               children: [
@@ -556,6 +573,11 @@ class ShellState extends State<Shell> {
               onPressed: doc == null ? null : () => save(saveAs: true),
             ),
             const TranslitButton(),
+            IconButton(
+              tooltip: t('AI chat'),
+              icon: const Icon(Icons.auto_awesome_outlined),
+              onPressed: () => _scaffold.currentState?.openEndDrawer(),
+            ),
             PopupMenuButton<AppLanguage>(
               tooltip: t('Language'),
               icon: const Icon(Icons.translate),

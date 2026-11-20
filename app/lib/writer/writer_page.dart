@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../l10n/l10n.dart';
+import '../assist/chat_panel.dart';
+import '../assist/voice_button.dart';
 
 import '../core/document.dart';
 import '../core/file_dialog.dart';
@@ -92,6 +94,7 @@ class WriterPageState extends State<WriterPage> {
   ParaRef _current = const ParaRef(0);
   double _zoom = 1.0;
   bool _showFind = false;
+  bool _showChat = false;
   final _findText = TextEditingController();
   final _replaceText = TextEditingController();
   bool _matchCase = false;
@@ -393,6 +396,27 @@ class WriterPageState extends State<WriterPage> {
     _call('writer.break_undo');
     setState(() => _frame = b);
     if (!_frameFocus.hasFocus) _frameFocus.requestFocus();
+  }
+
+  /// Types dictated text at the caret (replacing a selection), with a
+  /// separating space when the caret follows a word.
+  void _insertDictation(String text) {
+    final ref = _current;
+    final c = _controllers[ref.key];
+    if (c == null) return;
+    final (start, end) = _selection();
+    final before = c.text.substring(0, start.clamp(0, c.text.length));
+    final insert = before.isEmpty || RegExp(r'\s$').hasMatch(before) ? text : ' $text';
+    _call('writer.replace', {'para': ref.toJson(), 'start': start, 'end': end, 'text': insert});
+    _call('writer.break_undo');
+    _reload(focus: ref, offset: start + insert.length);
+  }
+
+  /// Inserts a chat answer (Markdown) after the current paragraph.
+  void _insertMarkdown(String markdown) {
+    final at = _insertAt;
+    _call('writer.insert_markdown', {'at': at, 'text': markdown});
+    _reload(focus: ParaRef(at));
   }
 
   Future<void> _insertPicture() async {
@@ -904,33 +928,54 @@ class WriterPageState extends State<WriterPage> {
           if (_showFind) _findBar(theme),
           const Divider(height: 1),
           Expanded(
-            child: ColoredBox(
-              color: theme.brightness == Brightness.dark ? const Color(0xFF202124) : const Color(0xFFE8E6E1),
-              child: Scrollbar(
-                controller: _scroll,
-                child: SingleChildScrollView(
-                  controller: _scroll,
-                  padding: EdgeInsets.symmetric(vertical: narrow ? 0 : 24, horizontal: narrow ? 0 : 16),
-                  child: Center(
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < sheets.length; i++) ...[
-                          if (i > 0) SizedBox(height: narrow ? 8 : 24),
-                          _sheet(theme, i, sheets.length, sheets[i],
-                              width: narrow ? double.infinity : pageWidth,
-                              minHeight: narrow ? 0 : pageHeight,
-                              margin: effMargin,
-                              shadow: !narrow),
-                        ],
-                      ],
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: _pages(theme, sheets, narrow: narrow, pageWidth: pageWidth, pageHeight: pageHeight, effMargin: effMargin)),
+                if (_showChat) ...[
+                  const VerticalDivider(width: 1),
+                  SizedBox(
+                    width: 380,
+                    child: ChatPanel(
+                      onNewDocument: (h) => widget.onNewDocument != null ? widget.onNewDocument!(h) : core({'op': 'close', 'doc': h}),
+                      onInsert: _insertMarkdown,
+                      onClose: () => setState(() => _showChat = false),
                     ),
                   ),
-                ),
-              ),
+                ],
+              ],
             ),
           ),
           _statusBar(theme),
         ],
+      ),
+    );
+  }
+
+  Widget _pages(ThemeData theme, List<List<Widget>> sheets,
+      {required bool narrow, required double pageWidth, required double pageHeight, required double effMargin}) {
+    return ColoredBox(
+      color: theme.brightness == Brightness.dark ? const Color(0xFF202124) : const Color(0xFFE8E6E1),
+      child: Scrollbar(
+        controller: _scroll,
+        child: SingleChildScrollView(
+          controller: _scroll,
+          padding: EdgeInsets.symmetric(vertical: narrow ? 0 : 24, horizontal: narrow ? 0 : 16),
+          child: Center(
+            child: Column(
+              children: [
+                for (var i = 0; i < sheets.length; i++) ...[
+                  if (i > 0) SizedBox(height: narrow ? 8 : 24),
+                  _sheet(theme, i, sheets.length, sheets[i],
+                      width: narrow ? double.infinity : pageWidth,
+                      minHeight: narrow ? 0 : pageHeight,
+                      margin: effMargin,
+                      shadow: !narrow),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1376,6 +1421,17 @@ class WriterPageState extends State<WriterPage> {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            // Voice input and the AI chat live here, always visible, rather
+            // than at the end of the long formatting toolbar.
+            VoiceButton(onText: _insertDictation),
+            IconButton(
+              iconSize: 20,
+              tooltip: t('AI chat'),
+              isSelected: _showChat,
+              icon: const Icon(Icons.auto_awesome_outlined),
+              onPressed: () => setState(() => _showChat = !_showChat),
+            ),
+            const SizedBox(height: 24, child: VerticalDivider(width: 12)),
             IconButton(iconSize: 18, tooltip: t('Zoom out'), icon: const Icon(Icons.zoom_out), onPressed: () => setState(() => _zoom = (_zoom - 0.1).clamp(0.5, 3.0))),
             Text('${(_zoom * 100).round()}%', style: theme.textTheme.bodySmall),
             IconButton(iconSize: 18, tooltip: t('Zoom in'), icon: const Icon(Icons.zoom_in), onPressed: () => setState(() => _zoom = (_zoom + 0.1).clamp(0.5, 3.0))),

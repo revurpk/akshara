@@ -1,0 +1,14 @@
+[package]
+name = "office-ai"
+description = "Client for a local Ollama server (loopback only) used by Akshara's AI chat."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

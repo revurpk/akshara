@@ -29,7 +29,10 @@ cargo run -p icongen --release            # regenerate all icons from branding/*
 ## Linux desktop
 
 Needs `clang`, `cmake`, `ninja`, `pkg-config` and the GTK 3 development
-files (Debian/Ubuntu: `clang cmake ninja-build pkg-config libgtk-3-dev`).
+files, and the ALSA development files for microphone capture (Debian/Ubuntu:
+`clang cmake ninja-build pkg-config libgtk-3-dev libasound2-dev`; Fedora:
+`alsa-lib-devel`). The installed app needs `libasound.so.2`, which every
+desktop distribution ships.
 Without root, you can unpack the same packages into a private sysroot and put
 small wrapper scripts on `PATH`; this repository was developed that way (see
 `scripts/local-env.sh` if present).
@@ -200,3 +203,18 @@ and the **Linux** desktop release build and per-user installer were built and
 exercised on Linux x86-64. The Windows, macOS, Android and iOS projects,
 build scripts and installer definitions are complete, but they need those
 platforms' toolchains to build and have not been compiled here.
+
+## Voice input during development
+
+The speech engine (`crates/voice`) is compiled with optimisations even in
+debug builds (see `[profile.dev.package.*]` in `Cargo.toml`); unoptimised
+it is too slow to use. To try it without the app:
+
+```bash
+cargo run --release -p office-voice --example transcribe -- ggml-base.bin speech.wav te
+```
+
+Model files come from <https://huggingface.co/ggerganov/whisper.cpp>.
+The protocol tests include a real transcription when
+`AKSHARA_WHISPER_MODEL` and `AKSHARA_WHISPER_WAV` point at a model and a WAV
+file (for example `ggml-tiny.bin` and whisper.cpp's `samples/jfk.wav`).

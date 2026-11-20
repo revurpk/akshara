@@ -1,0 +1,29 @@
+[package]
+name = "office-voice"
+description = "Offline speech-to-text for Akshara: a Whisper engine that reads whisper.cpp (ggml) model files, plus microphone capture."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["capture"]
+# Microphone capture through cpal on Windows, macOS and Linux (Android and
+# iOS would need runtime permission prompts; they get a stub recorder).
+capture = ["dep:cpal"]
+
+[dependencies]
+candle-core = { version = "0.11", default-features = false }
+serde.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18", optional = true, features = ["pulseaudio"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "macos"))'.dependencies]
+cpal = { version = "0.18", optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
