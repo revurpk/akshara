@@ -1,0 +1,53 @@
+# Builds the macOS disk image. The Rust core is cross-compiled on Linux
+# (no Xcode needed, see scripts/build-native.sh); only the Flutter app
+# bundle and the .dmg are made on a macOS runner, because Flutter's macOS
+# build needs Xcode.
+name: macOS disk image
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Cross-compile the Rust core (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Universal macOS static library
+        run: scripts/build-native.sh macos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libakshara-macos
+          path: target/universal-apple-darwin/release/libakshara.a
+          if-no-files-found: error
+
+  dmg:
+    name: App bundle and disk image (macOS)
+    needs: core
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: libakshara-macos
+          path: target/universal-apple-darwin/release
+      - name: Flutter SDK
+        run: |
+          git clone --depth 1 --branch stable https://github.com/flutter/flutter.git "$HOME/flutter"
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+      - name: Build Akshara.app and the .dmg
+        run: |
+          flutter --version
+          packaging/macos/build-dmg.sh --prebuilt-core
+      - uses: actions/upload-artifact@v4
+        with:
+          name: akshara-macos-dmg
+          path: dist/*.dmg
+          if-no-files-found: error

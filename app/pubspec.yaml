@@ -1,7 +1,7 @@
 name: akshara
 description: "Akshara Office: a secure, cross-platform office suite (Writer, Calc, Impress, Draw, Math) with a Rust core."
 publish_to: 'none'
-version: 0.2.0+11
+version: 0.2.1+12
 
 environment:
   sdk: ^3.14.0
