@@ -33,7 +33,7 @@ dependencies = [
 
 [[package]]
 name = "akshara-ffi"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "office-ai",
  "office-calc",
@@ -976,7 +976,7 @@ checksum = "e17592d60ebacc7d5e169f4663c5f84f9161cc90328abcfe8456f41e4dfcb284"
 
 [[package]]
 name = "icongen"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "resvg",
 ]
@@ -1436,7 +1436,7 @@ dependencies = [
 
 [[package]]
 name = "office-ai"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -1444,7 +1444,7 @@ dependencies = [
 
 [[package]]
 name = "office-calc"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "office-odf",
  "proptest",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "office-draw"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "fontdb",
  "imagesize",
@@ -1465,7 +1465,7 @@ dependencies = [
 
 [[package]]
 name = "office-indic"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proptest",
  "teltools",
@@ -1473,7 +1473,7 @@ dependencies = [
 
 [[package]]
 name = "office-math"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "office-odf",
  "proptest",
@@ -1483,7 +1483,7 @@ dependencies = [
 
 [[package]]
 name = "office-odf"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "proptest",
  "zip",
@@ -1491,7 +1491,7 @@ dependencies = [
 
 [[package]]
 name = "office-voice"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "candle-core",
  "cpal",
@@ -1501,7 +1501,7 @@ dependencies = [
 
 [[package]]
 name = "office-writer"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "flate2",
  "office-draw",

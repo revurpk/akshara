@@ -20,6 +20,9 @@ struct Language {
 constexpr Language kLanguages[] = {
     {"en", LANG_ENGLISH}, {"te", LANG_TELUGU}, {"hi", LANG_HINDI}, {"sa", LANG_SANSKRIT}};
 
+// SP_GETWHOLEPHRASE is a signed enum (-1); GetText takes ULONG.
+constexpr ULONG kWholePhrase = static_cast<ULONG>(SP_GETWHOLEPHRASE);
+
 // How long to wait for the recogniser to finish after the microphone stops.
 constexpr ULONGLONG kFinishTimeoutMs = 4000;
 
@@ -265,7 +268,7 @@ void SystemSpeech::DrainEvents() {
     if (ev.eEventId == SPEI_RECOGNITION && ev.elParamType == SPET_LPARAM_IS_OBJECT && ev.lParam) {
       auto* res = reinterpret_cast<ISpRecoResult*>(ev.lParam);
       wchar_t* phrase = nullptr;
-      if (SUCCEEDED(res->GetText(SP_GETWHOLEPHRASE, SP_GETWHOLEPHRASE, TRUE, &phrase, nullptr)) && phrase) {
+      if (SUCCEEDED(res->GetText(kWholePhrase, kWholePhrase, TRUE, &phrase, nullptr)) && phrase) {
         std::string s = Utf8(phrase);
         CoTaskMemFree(phrase);
         if (!s.empty()) {
